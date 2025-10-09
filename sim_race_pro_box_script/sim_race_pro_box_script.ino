@@ -40,7 +40,6 @@ static const unsigned long USB_BAUD = 115200; // PC Serial Monitor
 Encoder myEnc(2, 3);        // A->D2, B->D3
 const long maxTicks = 3000; // safety clamp
 long zeroOffset = 0;        // ticks to subtract (dynamic zero)
-long lastPosition = 0;      // reserved for future use
 
 // Throttle and brake (analog)
 const uint8_t ACC_PIN = A1;
@@ -73,19 +72,6 @@ const int HANDBRAKE_PIN = 4;       // button between pin and GND
 const int MANUAL_TX_POT1_PIN = A7; // X-axis (left/right)
 const int MANUAL_TX_POT2_PIN = A6; // Y-axis (up/down)
 
-// Manual transmission gate thresholds (5 + R layout)
-// Adjust these values based on your sensors. A7/A6 read 0..1023.
-// Columns: left, center, right
-const int GEAR_X_LEFT_MAX = 380;
-const int GEAR_X_CENTER_MIN = 381;
-const int GEAR_X_CENTER_MAX = 650;
-const int GEAR_X_RIGHT_MIN = 651;
-// Rows: up (1/3/5) and down (2/4/R)
-const int GEAR_Y_UP_MAX = 420;
-const int GEAR_Y_DOWN_MIN = 600;
-// Debounce for gear stability
-const unsigned long GEAR_DEBOUNCE_MS = 80;
-
 // Buffers and state
 char lineBuf[96]; // slave line ~34 chars; keep margin
 uint8_t lineLen = 0;
@@ -100,12 +86,7 @@ void moveMotorToLeft(int vel);
 void stopMotor();
 void enableMotor();
 void disableMotor();
-
-// Manual transmission helpers
-int detectGearRaw(int x, int y);                // returns 0=N, 1..5, 6=R
-int detectGearStable(int rawGear);              // debounce/stabilize
-void buildGearBits(int gearIndex, char out6[]); // builds "1..5,R" as 6 chars
-char readHandbrakeBit();                        // returns '1' when pulled (active-low)
+char readHandbrakeBit(); // returns '1' when pulled (active-low)
 
 void setup()
 {
@@ -243,72 +224,41 @@ void loop()
 
       proportionalControlBasic(degrees, acc, brk);
 
-      // Handbrake and manual transmission encoding for host
-      // hbBit = '1' when handbrake pulled; '0' otherwise
-      // gearBits = "abcdef" where:
-      //   a=1st, b=2nd, c=3rd, d=4th, e=5th, f=Reverse (one-hot). "000000" means Neutral.
+      // Handbrake and manual transmission raw analogs for host
       char hbBit = '0';
-      char gearBits[7] = "000000"; // default to all zeros
-
       if (HANDBRAKE_ENABLED)
       {
         hbBit = readHandbrakeBit();
       }
       else
       {
-        hbBit = '0'; // default when module is disabled
+        hbBit = '0';
       }
 
+      int gx255 = 0;
+      int gy255 = 0;
       if (MANUAL_TX_ENABLED)
       {
-        int gx = analogRead(MANUAL_TX_POT1_PIN); // X axis
-        int gy = analogRead(MANUAL_TX_POT2_PIN); // Y axis
-        int gRaw = detectGearRaw(gx, gy);        // 0=N, 1..5, 6=R
-        int g = detectGearStable(gRaw);
-        buildGearBits(g, gearBits);
-      }
-      else
-      {
-        // all zeros when module is disabled
-        gearBits[0] = '0';
-        gearBits[1] = '0';
-        gearBits[2] = '0';
-        gearBits[3] = '0';
-        gearBits[4] = '0';
-        gearBits[5] = '0';
-        gearBits[6] = '\0';
+        int gx = analogRead(MANUAL_TX_POT1_PIN); // 0..1023
+        int gy = analogRead(MANUAL_TX_POT2_PIN); // 0..1023
+        gx255 = constrain(map(gx, 0, 1023, 0, 255), 0, 255);
+        gy255 = constrain(map(gy, 0, 1023, 0, 255), 0, 255);
       }
 
       /*
        * SERIAL LINE FORMAT (USB Serial to PC)
        *
-       * The line printed below uses a dash-separated format:
+       * Dash-separated:
        *
-       *   <degrees>-<acc>-<brk>-<slave>-<hb>-<gears>\r\n
+       *   <degrees>-<acc>-<brk>-<slave>-<hb>-<gx>-<gy>\r\n
        *
-       * Segment-by-segment:
-       * 1) <degrees>  : Steering angle in degrees (float with 1 decimal).
-       *                  Positive = left, negative = right (based on your wiring).
-       * 2) <acc>      : Throttle value mapped to 0..255 (integer).
-       * 3) <brk>      : Brake value mapped to 0..255 (integer).
-       * 4) <slave>    : Raw line forwarded from the slave MCU (opaque payload).
-       *                 It may contain its own fields and ends before the next dash.
-       * 5) <hb>       : Handbrake bit ('1' when pulled, '0' otherwise).
-       *                 If HANDBRAKE_ENABLED == false, this is always '0'.
-       * 6) <gears>    : Six one-hot bits as a 6-char string "abcdef":
-       *                    a = 1st gear
-       *                    b = 2nd gear
-       *                    c = 3rd gear
-       *                    d = 4th gear
-       *                    e = 5th gear
-       *                    f = Reverse
-       *                  Exactly one bit is '1' for a valid gear. "000000" means Neutral.
-       *                  If MANUAL_TX_ENABLED == false, this is always "000000".
-       *
-       * Example:
-       *   12.3-128-0-001001010111000-1-001000
-       *   means: 12.3° steering, throttle=128, brake=0, slave payload="001001010111000",
-       *          handbrake=1 (pulled), and 3rd gear active ("001000").
+       * 1) <degrees> : Steering angle in degrees (float, 1 decimal).
+       * 2) <acc>     : Throttle mapped to 0..255.
+       * 3) <brk>     : Brake mapped to 0..255.
+       * 4) <slave>   : Raw line from slave MCU.
+       * 5) <hb>      : Handbrake bit ('1' pulled, '0' otherwise).
+       * 6) <gx>      : Manual transmission X analog in 0..255.
+       * 7) <gy>      : Manual transmission Y analog in 0..255.
        */
 
       // Print to USB (host)
@@ -322,9 +272,11 @@ void loop()
       Serial.print('-');
       Serial.print(hbBit);
       Serial.print('-');
-      Serial.println(gearBits);
+      Serial.print(gx255);
+      Serial.print('-');
+      Serial.println(gy255);
 
-      // Print to slave (unchanged minimal format)
+      // Print to slave (minimal format)
       link.print(degrees, 1);
       link.print('-');
       link.print(acc);
@@ -362,74 +314,6 @@ bool extractResetBit(const char *s)
       return true;
   }
   return false; // default if not found
-}
-
-// Manual transmission: raw detection from X/Y gates
-// Returns: 0 = Neutral, 1..5 = gears, 6 = Reverse
-int detectGearRaw(int x, int y)
-{
-  int col = -1, row = -1;
-
-  if (x <= GEAR_X_LEFT_MAX)
-    col = 0; // left
-  else if (x >= GEAR_X_RIGHT_MIN)
-    col = 2; // right
-  else if (x >= GEAR_X_CENTER_MIN && x <= GEAR_X_CENTER_MAX)
-    col = 1; // center
-
-  if (y <= GEAR_Y_UP_MAX)
-    row = 0; // up
-  else if (y >= GEAR_Y_DOWN_MIN)
-    row = 1; // down
-
-  if (col == 0 && row == 0)
-    return 1; // 1st
-  if (col == 0 && row == 1)
-    return 2; // 2nd
-  if (col == 1 && row == 0)
-    return 3; // 3rd
-  if (col == 1 && row == 1)
-    return 4; // 4th
-  if (col == 2 && row == 0)
-    return 5; // 5th
-  if (col == 2 && row == 1)
-    return 6; // Reverse
-  return 0;   // Neutral
-}
-
-// Manual transmission: debounce/stabilize the detected gear
-int detectGearStable(int rawGear)
-{
-  static int lastSeen = 0;
-  static int stable = 0;
-  static unsigned long t0 = 0;
-
-  if (rawGear != lastSeen)
-  {
-    lastSeen = rawGear;
-    t0 = millis();
-  }
-  if (millis() - t0 >= GEAR_DEBOUNCE_MS)
-  {
-    stable = lastSeen;
-  }
-  return stable;
-}
-
-// Builds 6-bit one-hot string for 1..5,R (Neutral = "000000")
-void buildGearBits(int gearIndex, char out6[])
-{
-  out6[0] = '0';
-  out6[1] = '0';
-  out6[2] = '0';
-  out6[3] = '0';
-  out6[4] = '0';
-  out6[5] = '0';
-  out6[6] = '\0';
-  if (gearIndex >= 1 && gearIndex <= 5)
-    out6[gearIndex - 1] = '1';
-  else if (gearIndex == 6)
-    out6[5] = '1'; // Reverse
 }
 
 // Returns '1' when handbrake is pulled (active-low), '0' otherwise
