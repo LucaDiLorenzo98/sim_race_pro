@@ -7,7 +7,7 @@
 #include <SoftwareSerial.h>
 #include <Encoder.h>
 
-const char *FW_VERSION = "ver. 1.0.0";
+const char *FW_VERSION = "ver. 1.1.0";
 
 // #####################################################
 // MANDATORY VAR. SETTINGS
