@@ -1,6 +1,6 @@
 {
     "configuration": "cpu=atmega328",
     "board": "arduino:avr:nano",
-    "port": "COM16",
+    "port": "COM6",
     "sketch": "sim_race_pro_box_script\\sim_race_pro_box_script.ino"
 }

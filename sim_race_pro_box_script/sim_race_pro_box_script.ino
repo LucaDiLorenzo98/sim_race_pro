@@ -24,8 +24,8 @@ bool BOX_BUDGET = false; // potentiometer rotation sensor
 bool PEDALS_CLUTCH = false;
 
 // These variables enable additional modules
-bool HANDBRAKE_ENABLED = true;
-bool MANUAL_TX_ENABLED = true;
+bool HANDBRAKE_ENABLED = false;
+bool MANUAL_TX_ENABLED = false;
 
 // #####################################################
 
