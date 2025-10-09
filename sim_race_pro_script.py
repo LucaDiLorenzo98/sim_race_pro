@@ -1,7 +1,7 @@
 import serial, threading, time, re, sys
 import vgamepad as vg
 
-VERSION = "1.3.14"
+VERSION = "1.3.15"
 print(f"SIM RACE BOX ver. {VERSION}", flush=True)
 
 # Config
@@ -9,6 +9,10 @@ SERIAL_PORT = 'COM6'
 BAUD_RATE = 115200
 DEBUG_SERIAL_LOGS = False  # True = print full serial lines
 DEBUG_RAW_GXGY = False     # True = print only [RAW] gx/gy
+
+# Module toggles
+HANDBRAKE_ENABLED = False      # enable / disable handbrake input (space bar)
+MANUAL_TX_ENABLED = False      # enable / disable manual transmission
 
 ANGLE_MIN = -450.0
 ANGLE_MAX = 450.0
@@ -127,12 +131,17 @@ def kb_press(keyname):
 
 def hb_handle(hb_bit):
     global last_hb_bit
+    if not HANDBRAKE_ENABLED:
+        return
     if hb_bit == 1 and last_hb_bit == 0:
         kb_press('space')  # press-only on rising edge
     last_hb_bit = hb_bit
 
 # Gear logic with gaps
 def gear_from_gx_gy(gx, gy):
+    if not MANUAL_TX_ENABLED:
+        return 0, "off", "off"
+
     # Y row with gap
     if gy <= GEAR_Y_MAP["up_max"]:
         row = "up"        # 1/3/5
@@ -233,16 +242,18 @@ def serial_reader():
             if to_press:
                 premi_pulsanti_istantanei(to_press)
 
-            hb_handle(1 if hb_bit == 1 else 0)
+            if HANDBRAKE_ENABLED:
+                hb_handle(1 if hb_bit == 1 else 0)
 
-            gear_idx, row, col = gear_from_gx_gy(clamp(gx,0,255), clamp(gy,0,255))
-            if gear_idx != last_gear_idx:
-                if gear_idx in gear_key_map:
-                    kb_press(gear_key_map[gear_idx])  # press only
-                    _log(f"[GEAR] {gear_idx} (row={row}, col={col})")
-                elif gear_idx == 0 and last_gear_idx != 0:
-                    _log(f"[GEAR] Neutral (row={row}, col={col})")
-                last_gear_idx = gear_idx
+            if MANUAL_TX_ENABLED:
+                gear_idx, row, col = gear_from_gx_gy(clamp(gx,0,255), clamp(gy,0,255))
+                if gear_idx != last_gear_idx:
+                    if gear_idx in gear_key_map:
+                        kb_press(gear_key_map[gear_idx])  # press only
+                        _log(f"[GEAR] {gear_idx} (row={row}, col={col})")
+                    elif gear_idx == 0 and last_gear_idx != 0:
+                        _log(f"[GEAR] Neutral (row={row}, col={col})")
+                    last_gear_idx = gear_idx
 
         except Exception as e:
             _log(f"[WARN] Reader error: {e}")
