@@ -46,6 +46,7 @@ const uint8_t ACC_PIN = A1;
 const uint8_t BRK_PIN = A0;
 int ACC_OFFSET = 0;
 int BRK_OFFSET = 0;
+int POT_OFFSET = 0; // only BOX_BUDGET
 int ACC_DEADZONE = 10;
 int BRK_DEADZONE = 10;
 
@@ -194,17 +195,29 @@ void loop()
       if (resetBit && !lastResetBit)
       {
         zeroOffset = myEnc.read();
+
+        // TODO: add read of potentiometer for BOX_BUDGET (POT_PIN) ***********************************************************************
+        if (BOX_BUDGET)
+        {
+          POT_OFFSET = analogRead(POT_PIN);
+        }
+
         ACC_OFFSET = analogRead(ACC_PIN);
         BRK_OFFSET = analogRead(BRK_PIN);
       }
       lastResetBit = resetBit;
+
+      // TODO: add read of potentiometer for BOX_BUDGET (POT_PIN) ***********************************************************************
 
       long ticks = myEnc.read() - zeroOffset;
       if (ticks > maxTicks)
         ticks = maxTicks;
       if (ticks < -maxTicks)
         ticks = -maxTicks;
+
       float degrees = (ticks / 2400.0f) * 360.0f; // 2400 ticks = 360°
+
+      // TODO: use potentiometer for steering angle **********************************************************************
 
       int acc = abs(analogRead(ACC_PIN) - ACC_OFFSET);
       int brk = abs(analogRead(BRK_PIN) - BRK_OFFSET);
