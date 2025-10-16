@@ -27,6 +27,9 @@ bool PEDALS_CLUTCH = false;
 bool HANDBRAKE_ENABLED = false;
 bool MANUAL_TX_ENABLED = false;
 
+// Set true only if you added the Pedals Vibration System
+bool PEDALS_VIBRATION_ENABLED = false;
+
 // #####################################################
 
 // Serial communication variables (master <-> slave MCU)
@@ -49,6 +52,10 @@ int BRK_OFFSET = 0;
 int POT_OFFSET = 0; // only BOX_BUDGET
 int ACC_DEADZONE = 10;
 int BRK_DEADZONE = 10;
+
+// Pedals Vibratrion System (optional)
+const uint8_t VIB_PIN = A2;
+const uint8_t VIB2_PIN = A3;
 
 // Motor controller
 const int RPWM = 11; // PWM pin (Timer2)
@@ -77,6 +84,13 @@ const int MANUAL_TX_POT2_PIN = A6; // Y-axis (up/down)
 char lineBuf[96]; // slave line ~34 chars; keep margin
 uint8_t lineLen = 0;
 bool lastResetBit = false;
+
+// --- PC telemetry reception (USB Serial -> forward to slave) ---
+static char telemBuf[128]; // holds one full telemetry line from PC (no trailing \n)
+static uint8_t telemLen = 0;
+static bool telemetryFresh = false; // becomes true when a NEW line from PC arrived
+static unsigned long lastTelemForwardMs = 0;
+static const unsigned long telemForwardIntervalMs = 40; // max ~25 Hz forward to wheel
 
 // Prototypes
 bool extractResetBit(const char *s);
@@ -176,10 +190,25 @@ void setup()
   {
     Serial.println("Manual gearbox not enabled");
   }
+
+  if (PEDALS_VIBRATION_ENABLED)
+  {
+    pinMode(VIB_PIN, OUTPUT);
+    pinMode(VIB2_PIN, OUTPUT);
+    Serial.println("Pedals vibration system setup done");
+  }
+  else
+  {
+    Serial.println("Pedals vibration system not enabled");
+  }
 }
 
 void loop()
 {
+
+  // Check if PC sent a telemetry line on USB serial (non-blocking)
+  // pollPcTelemetry();
+
   // Read characters from slave until newline
   while (link.available())
   {
@@ -296,6 +325,9 @@ void loop()
       link.print('-');
       link.println(brk);
 
+      // forward TelemetryPacket to the wheel if available (does nothing otherwise)
+      forwardTelemetryToWheelIfAny();
+
       lineLen = 0;
     }
     else
@@ -334,6 +366,75 @@ char readHandbrakeBit()
 {
   int v = digitalRead(HANDBRAKE_PIN);
   return (v == LOW) ? '1' : '0';
+}
+
+// Returns true if the string looks like a full TelemetryPacket (14 fields, 13 dashes).
+bool looksLikeTelemetryPacket(const char *s)
+{
+  // Fast dash count
+  int dashes = 0;
+  for (const char *p = s; *p; ++p)
+  {
+    if (*p == '-')
+      dashes++;
+    if (dashes >= 13)
+      return true; // 14 values => 13 dashes
+  }
+  return false;
+}
+
+// Non-blocking poll for PC telemetry on USB Serial.
+// When a full line is received, sets telemetryFresh=true and stores it in telemBuf (without newline).
+void pollPcTelemetry()
+{
+  while (Serial.available())
+  {
+    char c = (char)Serial.read();
+
+    if (c == '\n')
+    {
+      // Trim optional '\r'
+      if (telemLen > 0 && telemBuf[telemLen - 1] == '\r')
+        telemLen--;
+      telemBuf[telemLen] = '\0';
+
+      // Accept only if it *looks* like a TelemetryPacket (won't break old flows)
+      if (looksLikeTelemetryPacket(telemBuf))
+      {
+        telemetryFresh = true; // new packet ready to forward
+      }
+      telemLen = 0; // reset for next line
+    }
+    else
+    {
+      if (telemLen < sizeof(telemBuf) - 1)
+      {
+        telemBuf[telemLen++] = c;
+      }
+      else
+      {
+        // overflow -> reset the buffer defensively
+        telemLen = 0;
+      }
+    }
+  }
+}
+
+// Forward the latest PC telemetry to the slave (WHEEL) at a limited rate.
+// Does nothing if no fresh telemetry is present.
+void forwardTelemetryToWheelIfAny()
+{
+  if (!telemetryFresh)
+    return;
+  unsigned long now = millis();
+  if (now - lastTelemForwardMs < telemForwardIntervalMs)
+    return;
+
+  // Send exactly the TelemetryPacket line the PC produced (already dash-separated).
+  // Keep existing minimal line logic intact (we’ll still send it below as before).
+  link.println(telemBuf); // ONE full telemetry line to the wheel
+  lastTelemForwardMs = now;
+  telemetryFresh = false; // mark as consumed (next fresh packet will re-arm)
 }
 
 // Minimal proportional control for motor assist
