@@ -1,6 +1,6 @@
 # Dynamic FFB – SIM Race PRO (Windows)
 
-This guide takes you from a fresh Windows install to running the simulator with **two Arduinos** talking to each other and a **Python** process that reads game telemetry and emulates a **virtual Xbox controller**.
+This guide takes you from a fresh Windows install to running the simulator with **two Arduinos** talking to each other and a **Python** process that emulates a **virtual Xbox controller**.
 
 > **Tested on Windows 10/11.**  
 > Python 3.11/3.12 recommended.
@@ -37,10 +37,10 @@ The Python script uses **vgamepad**, which requires the **ViGEmBus** driver to c
 
 Place these files in the same folder:
 
-- `sim_race_pro_script.py` — main runner (serial I/O, virtual gamepad, telemetry bridge)
-- `telemetry_sources.py` — game readers (F1 24 via UDP, ACC via shared memory)
+- `sim_race_pro_script.py` — main runner (serial I/O, virtual gamepad bridge)
+- `telemetry_sources.py` — placeholder for future telemetry integration
 - `sim_race_pro_wheel_script.ino` — Arduino firmware for the **wheel**
-- `sim_race_pro_box_script.ino` — Arduino firmware for the **box/dashboard**
+- `sim_race_pro_box_script.ino` — Arduino firmware for the **box**
 
 ---
 
@@ -80,7 +80,7 @@ You have **two separate Arduinos**. Upload **each** sketch to the correct board.
 ### 6.1 Prepare
 1. Connect the **first Arduino** (for the **wheel**) via USB.
 2. In Arduino IDE:
-   - **Tools → Board**: select the correct board (e.g., Arduino Nano/Uno)
+   - **Tools → Board**: select the correct board (e.g., Arduino Nano)
    - **Tools → Port**: select the matching COM port
 
 ### 6.2 Upload Wheel firmware
@@ -99,85 +99,68 @@ You have **two separate Arduinos**. Upload **each** sketch to the correct board.
 
 ---
 
-## 7) Game setup (telemetry)
-
-### F1 24
-- Enable **UDP Telemetry** in-game, set **Port = 20777**.
-- The Python reader listens on UDP **20777** and parses Motion & Car Telemetry packets.
-
-### Assetto Corsa Competizione (ACC)
-- The reader uses **shared memory** via `pyaccsharedmemory`.
-- Simply start ACC; the Python script reads live physics data.
-
----
-
-## 8) Configure `sim_race_pro_script.py`
+## 7) Configure `sim_race_pro_script.py`
 
 Open the file and adjust the configuration block (near the top), e.g.:
 
 ```python
-# Serial port to the Arduino that receives telemetry (usually the BOX)
+# Serial port to the Arduino that communicates with the PC
 SERIAL_PORT = 'COM6'   # <-- change to your actual COM port
 BAUD_RATE   = 115200
 
-# Game selection: "F1" or "ACC"
-SELECTED_GAME = "F1"
-
 # Feature toggles and tuning
-SEND_TELEMETRY        = True
-TX_RATE_HZ            = 20     # 20 Hz (every 50 ms)
-HANDBRAKE_ENABLED     = False
-MANUAL_TX_ENABLED     = False
-KEYBOARD_SIM_ENABLED  = True
+SEND_DATA            = True
+TX_RATE_HZ           = 20     # 20 Hz (every 50 ms)
+HANDBRAKE_ENABLED    = False
+MANUAL_TX_ENABLED    = False
+KEYBOARD_SIM_ENABLED = True
 
 # Steering mapping (wheel -> virtual gamepad)
-ANGLE_MIN             = -450.0
-ANGLE_MAX             =  450.0
-ANGLE_DEADZONE_DEG    = 0.5
-STEER_GAIN            = 3.5    # increase if you hit max stick too early/late
+ANGLE_MIN            = -450.0
+ANGLE_MAX            =  450.0
+ANGLE_DEADZONE_DEG   = 0.5
+STEER_GAIN           = 3.5    # increase if you hit max stick too early/late
 ```
 
 **What it does:**
 - Creates a **virtual Xbox controller** (via `vgamepad`)
 - Maps wheel angle to **left joystick**, throttle to **RT**, brake to **LT**
-- Reads game telemetry (F1/ACC) and sends a compact frame to the **box Arduino** over serial
+- Sends control and status data to the **box Arduino** over serial
 
 ---
 
-## 9) Run the simulator
+## 8) Run the simulator
 
-1. Start the **game** (F1 24 with UDP on 20777 **or** ACC).
-2. Ensure **both Arduinos** are powered via USB.
-3. In the project folder:
+1. Ensure **both Arduinos** are powered via USB.
+2. In the project folder:
    ```powershell
    python sim_race_pro_script.py
    ```
-4. Expected logs (examples):
+3. Expected logs (examples):
    - `Virtual gamepad ready`
    - `Serial open on COMxx @ 115200`
-   - `F1 24 reader started (UDP 20777)` **or** `ACC reader started (shared memory)`
 
 If you see errors, check **Troubleshooting** below.
 
 ---
 
-## 10) Quick checks
+## 9) Quick checks
 
-### 10.1 Find the correct COM port (Windows)
+### 9.1 Find the correct COM port (Windows)
 - Open **Device Manager**, expand **Ports (COM & LPT)**
 - Plug/unplug the Arduino to see which **COM** appears/disappears
 
-### 10.2 Verify packages at once
+### 9.2 Verify packages at once
 ```powershell
-pip list | findstr /I "pyserial vgamepad keyboard pyaccsharedmemory"
+pip list | findstr /I "pyserial vgamepad keyboard"
 ```
 
-### 10.3 Verify ViGEm (virtual controller)
+### 9.3 Verify ViGEm (virtual controller)
 - When the script is running, open **Windows Game Controllers** and you should see an Xbox controller
 
 ---
 
-## 11) Tuning tips
+## 10) Tuning tips
 
 - **Steering sensitivity**: increase `STEER_GAIN` if the virtual stick reaches full left/right too late; decrease if it saturates too early.
 - **Deadzone**: adjust `ANGLE_DEADZONE_DEG` to smooth small jitters around center.
@@ -185,7 +168,7 @@ pip list | findstr /I "pyserial vgamepad keyboard pyaccsharedmemory"
 
 ---
 
-## 12) Troubleshooting
+## 11) Troubleshooting
 
 - **Virtual gamepad not detected**
   - Install **ViGEmBus**, then **reboot**
@@ -196,25 +179,19 @@ pip list | findstr /I "pyserial vgamepad keyboard pyaccsharedmemory"
   - Port busy (another app open)
   - Cable/board issue or mismatched `BAUD_RATE`
 
-- **No telemetry from game**
-  - **F1 24**: UDP **Enabled**, Port **20777**, firewall not blocking
-  - **ACC**: `pyaccsharedmemory` installed, game actually running
-  - `SELECTED_GAME` matches the running game
-
 - **Lag or instability**
   - Lower `TX_RATE_HZ` (e.g., 10–15)
   - Disable verbose logs
-  - Close other tools reading the same UDP/SHM sources
+  - Close other tools using the same COM port
 
 ---
 
-## 13) Data flow overview
+## 12) Data flow overview
 
 - **Arduino → PC (serial)**: wheel angle, pedals, buttons (and optional IMU gx/gy)
 - **PC**:
   - Emulates a **virtual Xbox controller**
-  - Reads game telemetry (**F1 UDP 20777** / **ACC shared memory**)
-  - Builds a unified telemetry frame
+  - Builds and sends control data frames
 - **PC → Arduino (box, serial)**: sends compact frame  
   ```
   gx-gy-gz-yaw-pitch-roll-speed-gear-rpm-oncurb-curbside-rumble-pwmsx-pwmdx\n
@@ -222,13 +199,12 @@ pip list | findstr /I "pyserial vgamepad keyboard pyaccsharedmemory"
 
 ---
 
-## 14) Support checklist (before asking for help)
+## 13) Support checklist (before asking for help)
 
 - Python 3.11/3.12 installed and on PATH
-- `pyserial`, `vgamepad`, `keyboard`, `pyaccsharedmemory` installed
+- `pyserial`, `vgamepad`, `keyboard` installed
 - ViGEmBus installed and system restarted
 - Correct `SERIAL_PORT` set for the **box** Arduino
-- **F1 UDP 20777** enabled or **ACC** running
 
 ---
 
