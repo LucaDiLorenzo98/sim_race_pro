@@ -73,7 +73,7 @@ const int pwm_min = 90;
 const int POT_PIN = A4;
 
 // Clutch (third pedal)
-const int CLUTCH_PIN = A2;
+const int CLUTCH_PIN = A3;
 
 // Additional modules
 const int HANDBRAKE_PIN = 4;       // button between pin and GND
