@@ -24,11 +24,8 @@ const uint8_t colPins[4] = {8, 9, 10, 11}; // Colonne: D8..D11
 // Tasto esterno su D12 (verso GND, INPUT_PULLUP)
 const uint8_t RESET_PIN = 12;
 
-// LED NON PCB VERSION (UNCOMMENT FOR PCB VERSION) ******
+// LED PINS
 const uint8_t ledPins[3] = {A2, A1, A0};
-
-// LED PCB VERSION (COMMENT FOR NON PCB VERSION) ******
-// const uint8_t ledPins[3] = {A7, A6, A3};
 
 // SoftwareSerial su D2 (RX) e D3 (TX)
 SoftwareSerial link(2, 3); // RX=D2, TX=D3
