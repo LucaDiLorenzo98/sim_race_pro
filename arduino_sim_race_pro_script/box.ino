@@ -1,3 +1,12 @@
+#include "sim_telemetry.h"
+struct TelemetryFrame;
+
+#include <SoftwareSerial.h>
+#include <Encoder.h>
+#include <ctype.h>
+
+// #define BUILD_BOX // Comment this line
+
 #ifdef BUILD_BOX
 
 /* Written by Luca Di Lorenzo 01/09/2025
@@ -5,11 +14,6 @@
 
 // No need to install SoftwareSerial, but you have to
 // install Encoder library (use Arduino IDE Library Manager)
-
-#include <SoftwareSerial.h>
-#include <Encoder.h>
-#include <ctype.h>
-#include "sim_telemetry.h"
 
 const char *FW_VERSION = "ver. 2.0.0";
 
@@ -120,140 +124,7 @@ bool lastResetBit = false;
 uint8_t linkIndex = 0;
 uint8_t pcIndex = 0;
 
-// ############### STRUCTS AND ENUMS FOR TELEMETRY ###############
-
-enum CurbSide : uint8_t
-{
-  CURB_NONE = 0,
-  CURB_LEFT,
-  CURB_RIGHT,
-  CURB_CENTER
-};
-
-struct TelemetryFrame
-{
-  float speed_kmh = 0.0f;
-  int8_t gear = 0;       // -1=R, 0=N, 1..8
-  float throttle = 0.0f; // 0..1
-  float brake = 0.0f;    // 0..1
-  bool has_steer = false;
-  float steer = 0.0f; // -1..1
-  bool has_rpm = false;
-  int rpm = 0;
-  bool has_g_lat = false;
-  float g_lat = 0.0f;
-  bool has_g_lon = false;
-  float g_lon = 0.0f;
-  bool has_g_vert = false;
-  float g_vert = 0.0f;
-  bool has_on_curb = false;
-  bool on_curb = false;
-  bool has_curb_side = false;
-  CurbSide curb_side = CURB_NONE;
-};
-
 // ############### METHODS ###############
-
-static inline CurbSide curbFromFirst(const char *s)
-{
-  if (!s || !*s)
-    return CURB_NONE;
-  char c = tolower((unsigned char)s[0]);
-  if (c == 'l')
-    return CURB_LEFT;
-  if (c == 'r')
-    return CURB_RIGHT;
-  if (c == 'c')
-    return CURB_CENTER;
-  return CURB_NONE;
-}
-
-static inline bool asBool(const char *s)
-{
-  if (!s || !*s)
-    return false;
-  char c = tolower((unsigned char)s[0]);
-  return (c == '1' || c == 't' || c == 'y'); // 1/true/yes
-}
-
-static inline float clampf(float v, float lo, float hi)
-{
-  return v < lo ? lo : (v > hi ? hi : v);
-}
-
-bool parseTelemetry(const char *line, TelemetryFrame &t)
-{
-  if (!line || !*line)
-    return false;
-
-  char buf[160];
-  size_t n = 0;
-  while (line[n] && n < sizeof(buf) - 1)
-  {
-    buf[n] = line[n];
-    n++;
-  }
-  buf[n] = '\0';
-
-  char *save = nullptr, *tok = strtok_r(buf, "-", &save);
-  for (int idx = 0; tok; ++idx, tok = strtok_r(nullptr, "-", &save))
-  {
-    switch (idx)
-    {
-    case 0:
-      t.speed_kmh = atof(tok);
-      break;
-    case 1:
-      t.gear = (int8_t)atoi(tok);
-      break;
-    case 2:
-      t.throttle = atof(tok);
-      break;
-    case 3:
-      t.brake = atof(tok);
-      break;
-    case 4:
-      t.has_steer = true;
-      t.steer = atof(tok);
-      break;
-    case 5:
-      t.has_rpm = true;
-      t.rpm = atoi(tok);
-      break;
-    case 6:
-      t.has_g_lat = true;
-      t.g_lat = atof(tok);
-      break;
-    case 7:
-      t.has_g_lon = true;
-      t.g_lon = atof(tok);
-      break;
-    case 8:
-      t.has_g_vert = true;
-      t.g_vert = atof(tok);
-      break;
-    case 9:
-      t.has_on_curb = true;
-      t.on_curb = asBool(tok);
-      break;
-    case 10:
-      t.has_curb_side = true;
-      t.curb_side = curbFromFirst(tok);
-      break;
-    default: /* extra token ignorati */
-      break;
-    }
-  }
-
-  // clamp base
-  t.throttle = clampf(t.throttle, 0.0f, 1.0f);
-  t.brake = clampf(t.brake, 0.0f, 1.0f);
-  if (t.has_steer)
-    t.steer = clampf(t.steer, -1.0f, 1.0f);
-
-  // minimo indispensabile per considerarlo valido
-  return true; // oppure: return (line conteneva almeno 4 campi)
-}
 
 bool extractResetBit(const char *s)
 {
@@ -368,7 +239,7 @@ int proportionalControlBasic(float degrees, int acc, int brake)
   return pwm;
 }
 
-void telemetryControlAdvance(const TelemetryFrame &t, float wheelDeg)
+void telemetryControlAdvance(const struct TelemetryFrame &t, float wheelDeg)
 {
   // Limit steering for safety
   if (wheelDeg > DEG_LIMIT)
@@ -504,7 +375,7 @@ void processSimulation(const char *linkData, const char *pcData)
     else
     {
       // telemetry data received from PC
-      TelemetryFrame telemetryFrame;
+      static TelemetryFrame telemetryFrame;
       if (parseTelemetry(pcData, telemetryFrame))
       {
         telemetryControlAdvance(telemetryFrame, degrees);

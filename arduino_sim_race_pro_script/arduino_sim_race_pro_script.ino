@@ -1,3 +1,5 @@
+#include "sim_telemetry.h"
+
 // ============================================================================
 //  SIM RACE PRO – Firmware Loader
 // ============================================================================
@@ -40,8 +42,8 @@
 //  SELECT TARGET BELOW
 // ============================================================================
 
-#define BUILD_BOX
-// #define BUILD_WHEEL
+// #define BUILD_BOX
+#define BUILD_WHEEL
 
 #if defined(BUILD_BOX) && defined(BUILD_WHEEL)
 #error "Choose only ONE: BUILD_BOX OR BUILD_WHEEL"

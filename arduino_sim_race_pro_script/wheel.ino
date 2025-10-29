@@ -1,11 +1,15 @@
-#ifdef BUILD_WHEEL
+#include "sim_telemetry.h"
+struct TelemetryFrame;
 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <SoftwareSerial.h>
 #include <string.h>
-#include "sim_telemetry.h"
+
+// #define BUILD_WHEEL // Comment this line
+
+#ifdef BUILD_WHEEL
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -154,6 +158,66 @@ void drawAngleSmall(float degrees)
   display.print(num);
 }
 
+void renderDisplay(bool telemetryMode,
+                   float degrees,
+                   int acc,
+                   int brk,
+                   const TelemetryFrame &tf,
+                   int currentKey)
+{
+  if (!telemetryMode)
+  {
+
+    // Update speed bars and steering
+    drawSideBars(acc, brk);
+    drawAngleSmall(degrees);
+
+    // Update main center display only when needed
+    if (currentKey != lastActive)
+    {
+      if (currentKey == 0)
+        drawContentCentered("N", 4);
+      else if (currentKey == 100)
+        drawContentCentered("R", 4);
+      else
+        drawContentCentered(String(currentKey), 4);
+
+      lastActive = currentKey;
+    }
+
+    display.display();
+    return;
+  }
+
+  // Header always visible (already drawn in setup)
+  clearContentArea();
+
+  // Show speed (example)
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, HEADER_H + 4);
+  display.print(tf.speed_kmh, 0);
+  display.print(" km/h");
+
+  // Show gear
+  display.setCursor(100, HEADER_H + 4);
+  display.print(tf.gear);
+
+  // Show throttle / brake bars (large)
+  drawSideBars(acc, brk);
+
+  // Show steering (small)
+  drawAngleSmall(degrees);
+
+  // More telemetry fields can be added later:
+  // - RPM
+  // - G-forces
+  // - Handbrake / traction flags
+  // - etc
+
+  display.display();
+}
+
 void setup()
 {
   for (uint8_t i = 0; i < 3; i++)
@@ -205,16 +269,21 @@ void loop()
   }
 
   // ######### READ DATA FROM BOX (TELEMETRY) #########
-  if (link.available())
+  while (link.available())
   {
-    static char rxBuf[48];
+
+    static char rxBuf[192];
     static uint8_t rxLen = 0;
+
     static float lastDeg = 0;
     static int lastAcc = 0, lastBrk = 0;
 
+    static TelemetryFrame lastTf;
+    static bool telemetry_mode = false;
+
     while (link.available())
     {
-      char c = link.read();
+      char c = (char)link.read();
 
       if (c == '\n')
       {
@@ -222,48 +291,38 @@ void loop()
           rxLen--;
         rxBuf[rxLen] = '\0';
 
-        char *p1 = strtok(rxBuf, "-");
-        char *p2 = strtok(NULL, "-");
-        char *p3 = strtok(NULL, "-");
+        float deg;
+        int acc, brk;
+        TelemetryFrame tfTmp;
+        bool full = parseWheelPacket(rxBuf, deg, acc, brk, tfTmp);
 
-        if (p1 && p2 && p3)
-        {
-          lastDeg = atof(p1);
-          lastAcc = constrain(atoi(p2), 0, 255);
-          lastBrk = constrain(atoi(p3), 0, 255);
+        lastDeg = deg;
+        lastAcc = constrain(acc, 0, 255);
+        lastBrk = constrain(brk, 0, 255);
 
-          uint8_t lvl = (lastAcc >= 200) ? 3 : (lastAcc >= 100) ? 2
-                                           : (lastAcc >= 10)    ? 1
-                                                                : 0;
-          digitalWrite(ledPins[0], lvl >= 1);
-          digitalWrite(ledPins[1], lvl >= 2);
-          digitalWrite(ledPins[2], lvl >= 3);
+        telemetry_mode = full;
+        if (full)
+          lastTf = tfTmp;
 
-          drawSideBars(lastAcc, lastBrk);
-          drawAngleSmall(lastDeg);
-          display.display();
-        }
         rxLen = 0;
       }
       else if (rxLen < sizeof(rxBuf) - 1)
+      {
         rxBuf[rxLen++] = c;
+      }
       else
+      {
         rxLen = 0;
+      }
     }
-  }
 
-  // ######### WRITE INFO ON DISPLAY #########
+    // ######### WRITE INFO ON DISPLAY #########
+    int current = resetPressed ? 100 : (fp ? fp : 0);
 
-  int current = resetPressed ? 100 : (fp ? fp : 0);
-  if (current != lastActive)
-  {
-    if (current == 0)
-      drawContentCentered("N", 4);
-    else if (current == 100)
-      drawContentCentered("R", 4);
-    else
-      drawContentCentered(String(current), 4);
-    lastActive = current;
+    if (!telemetry_mode && current != lastActive)
+      lastActive = current;
+
+    // Rendering moved to renderDisplay() added later
   }
 }
 
