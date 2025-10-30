@@ -228,10 +228,12 @@ int proportionalControlBasic(float degrees, int acc, int brake)
     pwm = 0;
   }
 
+  // TODO: use potentiometer for steering angle **********************************************************************
+
   if (PEDALS_VIBRATION_ENABLED)
   {
-    if (brake > 60 && brake < 150) // emulate ABS behaviour
-      digitalWrite(VIB_PIN, HIGH);
+    // if (brake > 60 && brake < 150) // emulate ABS behaviour
+    //  digitalWrite(VIB_PIN, HIGH);
 
     // digitalWrite(VIB2_PIN, HIGH);
   }

@@ -5,8 +5,6 @@ struct TelemetryFrame;
 #include <string.h>
 #include <ctype.h>
 
-// ######### INTERNAL UTILS #########
-
 static inline CurbSide curbFrom(const char *s)
 {
     if (!s || !*s)
@@ -26,7 +24,7 @@ static inline bool asBool(const char *s)
     if (!s || !*s)
         return false;
     char c = (char)tolower((unsigned char)s[0]);
-    return (c == '1' || c == 't' || c == 'y'); // 1/true/yes
+    return (c == '1' || c == 't' || c == 'y');
 }
 
 static inline float clampf(float v, float lo, float hi)
@@ -34,73 +32,86 @@ static inline float clampf(float v, float lo, float hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Copies src into dst (bounded) and NUL-terminates.
-static inline void copyLine(char *dst, size_t dstSize, const char *src)
+static inline int clampi(int v, int lo, int hi)
 {
-    if (!dst || !dstSize)
-        return;
-    size_t i = 0;
-    if (src)
-    {
-        while (src[i] && i < dstSize - 1)
-        {
-            dst[i] = src[i];
-            ++i;
-        }
-    }
-    dst[i] = '\0';
+    if (v < lo)
+        return lo;
+    if (v > hi)
+        return hi;
+    return v;
 }
 
-// ######### PARSERS #########
+// Read-only tokenizer: returns start of next token and advances p past the separator.
+// Does not write into the source buffer; uses the global NUL terminator only.
+static inline const char *nextTokenRO(const char *&p, char sep)
+{
+    if (!p || !*p)
+        return nullptr;
+    while (*p == sep)
+        ++p;
+    if (!*p)
+        return nullptr;
+    const char *start = p;
+    while (*p && *p != sep)
+        ++p;
+    if (*p == sep)
+        ++p;
+    return start;
+}
 
 bool parseTelemetry(const char *line, TelemetryFrame &t, char sep)
 {
     if (!line || !*line)
         return false;
 
-    // Local copy because strtok_r edits the buffer
-    char buf[192];
-    copyLine(buf, sizeof(buf), line);
+    t.has_steer = false;
+    t.has_rpm = false;
+    t.has_g_lat = false;
+    t.has_g_lon = false;
+    t.has_g_vert = false;
+    t.has_on_curb = false;
+    t.has_curb_side = false;
 
-    char seps[2] = {sep, '\0'};
-    char *save = nullptr;
-    char *tok = strtok_r(buf, seps, &save);
-
-    for (int idx = 0; tok; ++idx, tok = strtok_r(nullptr, seps, &save))
+    const char *p = line;
+    for (int idx = 0;; ++idx)
     {
+        const char *tok = nextTokenRO(p, sep);
+        if (!tok)
+            break;
+
         switch (idx)
         {
         case 0:
-            t.speed_kmh = (float)atof(tok);
+            t.speed_kmh = (float)strtod(tok, nullptr);
             break;
         case 1:
-            t.gear = (int8_t)atoi(tok);
+            t.gear = (int8_t)strtol(tok, nullptr, 10);
             break;
         case 2:
-            t.throttle = (float)atof(tok);
+            t.throttle = (float)strtod(tok, nullptr);
             break;
         case 3:
-            t.brake = (float)atof(tok);
+            t.brake = (float)strtod(tok, nullptr);
             break;
         case 4:
             t.has_steer = true;
-            t.steer = (float)atof(tok);
+            t.steer = (float)strtod(tok, nullptr);
             break;
         case 5:
             t.has_rpm = true;
-            t.rpm = atoi(tok);
+            t.rpm = (int)strtol(tok, nullptr, 10);
             break;
         case 6:
             t.has_g_lat = true;
-            t.g_lat = (float)atof(tok);
+            t.g_lat = (float)strtod(tok, nullptr);
             break;
         case 7:
             t.has_g_lon = true;
-            t.g_lon = (float)atof(tok);
+            t.g_lon = (float)strtod(tok, nullptr);
             break;
         case 8:
             t.has_g_vert = true;
-            t.g_vert = (float)atof(tok);
+            t.g_vert = (float)strtod(tok, nullptr);
             break;
         case 9:
             t.has_on_curb = true;
@@ -111,17 +122,16 @@ bool parseTelemetry(const char *line, TelemetryFrame &t, char sep)
             t.curb_side = curbFrom(tok);
             break;
         default:
-            break; // ignore extra fields
+            break;
         }
     }
 
-    // Basic sanity
     t.throttle = clampf(t.throttle, 0.0f, 1.0f);
     t.brake = clampf(t.brake, 0.0f, 1.0f);
     if (t.has_steer)
         t.steer = clampf(t.steer, -1.0f, 1.0f);
 
-    return true; // tolerant to missing tail fields
+    return true;
 }
 
 bool parseWheelPacket(const char *line,
@@ -131,39 +141,25 @@ bool parseWheelPacket(const char *line,
     if (!line || !*line)
         return false;
 
-    char buf[256];
-    copyLine(buf, sizeof(buf), line);
+    const char *p = line;
 
-    char seps[2] = {sep, '\0'};
-    char *save = nullptr;
-
-    // degrees
-    char *tok = strtok_r(buf, seps, &save);
+    const char *tok = nextTokenRO(p, sep);
     if (!tok)
         return false;
-    degrees = (float)atof(tok);
+    degrees = (float)strtod(tok, nullptr);
 
-    // acc
-    tok = strtok_r(nullptr, seps, &save);
+    tok = nextTokenRO(p, sep);
     if (!tok)
         return false;
-    acc = atoi(tok);
-    if (acc < 0)
-        acc = 0;
-    if (acc > 255)
-        acc = 255;
+    acc = clampi((int)strtol(tok, nullptr, 10), 0, 255);
 
-    // brk
-    tok = strtok_r(nullptr, seps, &save);
+    tok = nextTokenRO(p, sep);
     if (!tok)
         return false;
-    brk = atoi(tok);
-    if (brk < 0)
-        brk = 0;
-    if (brk > 255)
-        brk = 255;
+    brk = clampi((int)strtol(tok, nullptr, 10), 0, 255);
 
-    // Remaining substring is the telemetry packet
-    const char *rest = save ? save : "";
-    return parseTelemetry(rest, t, sep);
+    if (!p || !*p)
+        return false;
+
+    return parseTelemetry(p, t, sep);
 }
