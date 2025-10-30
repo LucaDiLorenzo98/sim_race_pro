@@ -27,7 +27,8 @@ ANGLE_DEADZONE_DEG = 0.5
 STEER_GAIN = 3.5
 KEYBOARD_SIM_ENABLED = True
 
-SELECTED_GAME = "F1"   # or "ACC"
+ # "ACC" or "F1"
+SELECTED_GAME = "ACC"  
 
 # Manual transmission thresholds (0..255)
 GEAR_Y_MAP = {
@@ -277,6 +278,32 @@ def fill_telemetry_packet(pkt: TelemetryPacket,
     pkt.curbside = -1 if pkt.curbside < 0 else (1 if pkt.curbside > 0 else 0)
     return pkt
 
+def build_wheel_telemetry_line(pkt: TelemetryPacket) -> str:
+    """
+    Format expected by Arduino parseTelemetry:
+    speed_kmh - gear - throttle - brake - steer - rpm - g_lat - g_lon - g_vert - on_curb - curb_side\n
+    Notes:
+      - throttle, brake in 0..1 (float); if unknown -> 0.0
+      - steer in -1..1 (float); if unknown -> 0.0
+      - curb_side: 'L' for -1, 'C' for 0, 'R' for +1
+    """
+    curb_chr = 'L' if pkt.curbside < 0 else ('R' if pkt.curbside > 0 else 'C')
+    parts = [
+        f"{pkt.speed:.1f}",         # speed_kmh (float ok)
+        f"{int(pkt.gear)}",         # gear
+        f"{0.0:.3f}",               # throttle (0..1) -> unknown => 0
+        f"{0.0:.3f}",               # brake (0..1)    -> unknown => 0
+        f"{0.0:.3f}",               # steer (-1..1)   -> unknown => 0
+        f"{int(pkt.rpm)}",          # rpm
+        f"{float(pkt.gx):.3f}",     # g_lat
+        f"{float(pkt.gy):.3f}",     # g_lon
+        f"{float(pkt.gz):.3f}",     # g_vert
+        f"{1 if int(pkt.oncurb) else 0}",  # on_curb
+        f"{curb_chr}"               # curb_side
+    ]
+    return "-".join(parts) + "\n"
+
+
 def build_serial_line(pkt: TelemetryPacket) -> str:
     """
     Builds a line string formatted as:
@@ -292,12 +319,14 @@ def build_serial_line(pkt: TelemetryPacket) -> str:
     return "-".join(parts) + "\n"
 
 def send_telemetry(ser_obj: serial.Serial, pkt: TelemetryPacket):
-    """Encodes and writes the telemetry packet through the serial port."""
     try:
-        line = build_serial_line(pkt)
+        line = build_wheel_telemetry_line(pkt)
         ser_obj.write(line.encode("ascii"))
+        if DEBUG_SERIAL_LOGS:
+            _log(f"[TX→BOX] {line.strip()}")
     except Exception as e:
         _log(f"[WARN] send_telemetry error: {e}")
+
 
 # =========================================================
 # Serial reader (unchanged)
