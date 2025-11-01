@@ -83,7 +83,7 @@ const int MANUAL_TX_POT1_PIN = A7; // X-axis (left/right)
 const int MANUAL_TX_POT2_PIN = A6; // Y-axis (up/down)
 
 // ############### Force-feedback settings for proportional control ###############
-const int pwm_threshold = 2;
+const int pwm_threshold = 3;
 const int pwm_floor = 15;
 const int pwm_max = 255;
 const int pwm_min = 90;
