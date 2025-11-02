@@ -63,11 +63,12 @@ const int LPWM = 10; // PWM pin (Timer1)
 const int REN = 9;
 const int LEN = 8;
 
-// Force-feedback settings
-const int pwm_threshold = 2;
+// ################# Force-feedback settings #################
+const int pwm_threshold = 5;
 const int pwm_floor = 15;
 const int pwm_max = 255;
-const int pwm_min = 90;
+const int pwm_min = 60;
+// ###########################################################
 
 // Rotation sensor (only BOX_BUDGET)
 const int POT_PIN = A4;
@@ -92,16 +93,111 @@ static bool telemetryFresh = false; // becomes true when a NEW line from PC arri
 static unsigned long lastTelemForwardMs = 0;
 static const unsigned long telemForwardIntervalMs = 40; // max ~25 Hz forward to wheel
 
-// Prototypes
-bool extractResetBit(const char *s);
-int proportionalControlBasic(float degrees, int acc, int brake);
-void vibration(int vel, int delayTime);
-void moveMotorToRight(int vel);
-void moveMotorToLeft(int vel);
-void stopMotor();
-void enableMotor();
-void disableMotor();
-char readHandbrakeBit(); // returns '1' when pulled (active-low)
+bool extractResetBit(const char *s)
+{
+  int len = 0;
+  while (s[len] != '\0')
+    len++;
+  for (int i = len - 1; i >= 0; --i)
+  {
+    if (s[i] == '0')
+      return false;
+    if (s[i] == '1')
+      return true;
+  }
+  return false; // default if not found
+}
+
+char readHandbrakeBit()
+{
+  int v = digitalRead(HANDBRAKE_PIN);
+  return (v == LOW) ? '1' : '0';
+}
+
+void moveMotorToLeft(int vel)
+{
+  analogWrite(RPWM, vel);
+  analogWrite(LPWM, 0);
+}
+
+void moveMotorToRight(int vel)
+{
+  analogWrite(RPWM, 0);
+  analogWrite(LPWM, vel);
+}
+
+void stopMotor()
+{
+  analogWrite(RPWM, 0);
+  analogWrite(LPWM, 0);
+}
+
+void enableMotor()
+{
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, HIGH);
+}
+
+void disableMotor()
+{
+  digitalWrite(REN, LOW);
+  digitalWrite(LEN, LOW);
+}
+
+int proportionalControlBasic(float degrees, int acc, int brake, bool onlyWheel)
+{
+  int pwm = 0;
+
+  if (degrees >= 450.0f || degrees <= -450.0f)
+  {
+    stopMotor();
+    disableMotor();
+    return 0;
+  }
+  else
+  {
+    enableMotor();
+  }
+
+  int effort = (brake > 0) ? brake : (acc > 0 ? acc : 0);
+
+  if (onlyWheel)
+    effort = 255;
+
+  if (effort > 0)
+  {
+    if (degrees >= pwm_threshold)
+    {
+      long angle = (long)degrees;
+      long prod = angle * (long)effort;
+      pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
+      if (pwm > 0 && pwm < pwm_floor)
+        pwm = pwm_floor;
+      moveMotorToLeft(pwm);
+    }
+    else if (degrees <= -pwm_threshold)
+    {
+      long angle = (long)(-degrees);
+      long prod = angle * (long)effort;
+      pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
+      if (pwm > 0 && pwm < pwm_floor)
+        pwm = pwm_floor;
+      moveMotorToRight(pwm);
+    }
+    else
+    {
+      stopMotor();
+      pwm = 0;
+    }
+  }
+  else
+  {
+    stopMotor();
+    pwm = 0;
+  }
+
+  return pwm;
+}
 
 void setup()
 {
@@ -130,8 +226,8 @@ void setup()
     pinMode(LEN, OUTPUT);
 
     // Raise PWM frequency above audible (~31 kHz)
-    // TCCR1B = (TCCR1B & 0b11111000) | 0x01;  // Timer1 -> pins 9,10  (LPWM=10)
-    // TCCR2B = (TCCR2B & 0b11111000) | 0x01;  // Timer2 -> pins 3,11  (RPWM=11)
+    TCCR1B = (TCCR1B & 0b11111000) | 0x01; // Timer1 -> pins 9,10  (LPWM=10)
+    TCCR2B = (TCCR2B & 0b11111000) | 0x01; // Timer2 -> pins 3,11  (RPWM=11)
 
     enableMotor();
     Serial.println("Force-feedback setup done");
@@ -205,10 +301,6 @@ void setup()
 
 void loop()
 {
-
-  // Check if PC sent a telemetry line on USB serial (non-blocking)
-  // pollPcTelemetry();
-
   // Read characters from slave until newline
   while (link.available())
   {
@@ -223,30 +315,39 @@ void loop()
       bool resetBit = extractResetBit(lineBuf);
       if (resetBit && !lastResetBit)
       {
-        zeroOffset = myEnc.read();
-
-        // TODO: add read of potentiometer for BOX_BUDGET (POT_PIN) ***********************************************************************
-        if (BOX_BUDGET)
-        {
+        if (!BOX_BUDGET)
+          zeroOffset = myEnc.read();
+        else
           POT_OFFSET = analogRead(POT_PIN);
-        }
 
-        ACC_OFFSET = analogRead(ACC_PIN);
-        BRK_OFFSET = analogRead(BRK_PIN);
+        if (!ONLY_WHEEL)
+        {
+          ACC_OFFSET = analogRead(ACC_PIN);
+          BRK_OFFSET = analogRead(BRK_PIN);
+        }
+        else
+        {
+          ACC_OFFSET = 0;
+          BRK_OFFSET = 0;
+        }
       }
       lastResetBit = resetBit;
 
-      // TODO: add read of potentiometer for BOX_BUDGET (POT_PIN) ***********************************************************************
-
-      long ticks = myEnc.read() - zeroOffset;
-      if (ticks > maxTicks)
-        ticks = maxTicks;
-      if (ticks < -maxTicks)
-        ticks = -maxTicks;
+      long ticks = 0;
+      if (BOX_BUDGET)
+      {
+        // TODO: implement POT reading
+      }
+      else
+      {
+        ticks = myEnc.read() - zeroOffset;
+        if (ticks > maxTicks)
+          ticks = maxTicks;
+        if (ticks < -maxTicks)
+          ticks = -maxTicks;
+      }
 
       float degrees = (ticks / 2400.0f) * 360.0f; // 2400 ticks = 360°
-
-      // TODO: use potentiometer for steering angle **********************************************************************
 
       int acc = abs(analogRead(ACC_PIN) - ACC_OFFSET);
       int brk = abs(analogRead(BRK_PIN) - BRK_OFFSET);
@@ -264,7 +365,13 @@ void loop()
       if (brk < BRK_DEADZONE)
         brk = 0;
 
-      proportionalControlBasic(degrees, acc, brk);
+      if (ONLY_WHEEL == true)
+      {
+        acc = 0;
+        brk = 0;
+      }
+
+      proportionalControlBasic(degrees, acc, brk, ONLY_WHEEL);
 
       // Handbrake and manual transmission raw analogs for host
       char hbBit = '0';
@@ -325,9 +432,6 @@ void loop()
       link.print('-');
       link.println(brk);
 
-      // forward TelemetryPacket to the wheel if available (does nothing otherwise)
-      forwardTelemetryToWheelIfAny();
-
       lineLen = 0;
     }
     else
@@ -344,192 +448,4 @@ void loop()
       }
     }
   }
-}
-
-bool extractResetBit(const char *s)
-{
-  int len = 0;
-  while (s[len] != '\0')
-    len++;
-  for (int i = len - 1; i >= 0; --i)
-  {
-    if (s[i] == '0')
-      return false;
-    if (s[i] == '1')
-      return true;
-  }
-  return false; // default if not found
-}
-
-// Returns '1' when handbrake is pulled (active-low), '0' otherwise
-char readHandbrakeBit()
-{
-  int v = digitalRead(HANDBRAKE_PIN);
-  return (v == LOW) ? '1' : '0';
-}
-
-// Returns true if the string looks like a full TelemetryPacket (14 fields, 13 dashes).
-bool looksLikeTelemetryPacket(const char *s)
-{
-  // Fast dash count
-  int dashes = 0;
-  for (const char *p = s; *p; ++p)
-  {
-    if (*p == '-')
-      dashes++;
-    if (dashes >= 13)
-      return true; // 14 values => 13 dashes
-  }
-  return false;
-}
-
-// Non-blocking poll for PC telemetry on USB Serial.
-// When a full line is received, sets telemetryFresh=true and stores it in telemBuf (without newline).
-void pollPcTelemetry()
-{
-  while (Serial.available())
-  {
-    char c = (char)Serial.read();
-
-    if (c == '\n')
-    {
-      // Trim optional '\r'
-      if (telemLen > 0 && telemBuf[telemLen - 1] == '\r')
-        telemLen--;
-      telemBuf[telemLen] = '\0';
-
-      // Accept only if it *looks* like a TelemetryPacket (won't break old flows)
-      if (looksLikeTelemetryPacket(telemBuf))
-      {
-        telemetryFresh = true; // new packet ready to forward
-      }
-      telemLen = 0; // reset for next line
-    }
-    else
-    {
-      if (telemLen < sizeof(telemBuf) - 1)
-      {
-        telemBuf[telemLen++] = c;
-      }
-      else
-      {
-        // overflow -> reset the buffer defensively
-        telemLen = 0;
-      }
-    }
-  }
-}
-
-// Forward the latest PC telemetry to the slave (WHEEL) at a limited rate.
-// Does nothing if no fresh telemetry is present.
-void forwardTelemetryToWheelIfAny()
-{
-  if (!telemetryFresh)
-    return;
-  unsigned long now = millis();
-  if (now - lastTelemForwardMs < telemForwardIntervalMs)
-    return;
-
-  // Send exactly the TelemetryPacket line the PC produced (already dash-separated).
-  // Keep existing minimal line logic intact (we’ll still send it below as before).
-  link.println(telemBuf); // ONE full telemetry line to the wheel
-  lastTelemForwardMs = now;
-  telemetryFresh = false; // mark as consumed (next fresh packet will re-arm)
-}
-
-// Minimal proportional control for motor assist
-int proportionalControlBasic(float degrees, int acc, int brake)
-{
-  int pwm = 0;
-
-  if (degrees >= 450.0f || degrees <= -450.0f)
-  {
-    stopMotor();
-    return 0;
-  }
-
-  int effort = (brake > 0) ? brake : (acc > 0 ? acc : 0);
-
-  if (effort > 0)
-  {
-    if (degrees >= pwm_threshold)
-    {
-      long angle = (long)degrees;
-      long prod = angle * (long)effort;
-      pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
-      if (pwm > 0 && pwm < pwm_floor)
-        pwm = pwm_floor;
-      moveMotorToLeft(pwm);
-    }
-    else if (degrees <= -pwm_threshold)
-    {
-      long angle = (long)(-degrees);
-      long prod = angle * (long)effort;
-      pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
-      if (pwm > 0 && pwm < pwm_floor)
-        pwm = pwm_floor;
-      moveMotorToRight(pwm);
-    }
-    else
-    {
-      stopMotor();
-      pwm = 0;
-    }
-  }
-  else
-  {
-    stopMotor();
-    pwm = 0;
-  }
-
-  return pwm;
-}
-
-void vibration(int vel, int delayTime)
-{
-  analogWrite(RPWM, vel);
-  analogWrite(LPWM, 0);
-  delay(delayTime);
-
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, 0);
-  delay(delayTime);
-
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, vel);
-  delay(delayTime);
-
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, 0);
-  delay(delayTime);
-}
-
-void moveMotorToLeft(int vel)
-{
-  analogWrite(RPWM, vel);
-  analogWrite(LPWM, 0);
-}
-
-void moveMotorToRight(int vel)
-{
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, vel);
-}
-
-void stopMotor()
-{
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, 0);
-}
-
-void enableMotor()
-{
-  digitalWrite(REN, HIGH);
-  digitalWrite(LEN, HIGH);
-}
-
-void disableMotor()
-{
-  digitalWrite(REN, LOW);
-  digitalWrite(LEN, LOW);
 }
