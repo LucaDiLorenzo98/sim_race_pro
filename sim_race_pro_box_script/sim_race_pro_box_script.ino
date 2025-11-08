@@ -13,7 +13,7 @@ const char *FW_VERSION = "ver. 1.1.0";
 // MANDATORY VAR. SETTINGS
 
 // Set true only if you want the wheel without pedals
-bool ONLY_WHEEL = false;
+bool ONLY_WHEEL = true;
 
 // Only one of the following BOX_ variables can be true
 bool BOX_FULL = true;    // force-feedback, high-res. encoder
@@ -81,9 +81,6 @@ const int HANDBRAKE_PIN = 4;       // button between pin and GND
 const int MANUAL_TX_POT1_PIN = A7; // X-axis (left/right)
 const int MANUAL_TX_POT2_PIN = A6; // Y-axis (up/down)
 
-// Buffers and state
-char lineBuf[96]; // slave line ~34 chars; keep margin
-uint8_t lineLen = 0;
 bool lastResetBit = false;
 
 // --- PC telemetry reception (USB Serial -> forward to slave) ---
@@ -299,140 +296,26 @@ void setup()
   }
 }
 
+char lineBuf[128];
+size_t lineLen = 0;
+bool gotLinkLine = false;
+char linePcBuf[128];
+size_t linePcLen = 0;
+bool gotPcLine = false;
+
 void loop()
 {
-  // Read characters from slave until newline
+  // --- SLAVE (link) ---
   while (link.available())
   {
     char ch = (char)link.read();
-
     if (ch == '\n')
     {
       if (lineLen > 0 && lineBuf[lineLen - 1] == '\r')
         lineLen--;
       lineBuf[lineLen] = '\0';
-
-      bool resetBit = extractResetBit(lineBuf);
-      if (resetBit && !lastResetBit)
-      {
-        if (!BOX_BUDGET)
-          zeroOffset = myEnc.read();
-        else
-          POT_OFFSET = analogRead(POT_PIN);
-
-        if (!ONLY_WHEEL)
-        {
-          ACC_OFFSET = analogRead(ACC_PIN);
-          BRK_OFFSET = analogRead(BRK_PIN);
-        }
-        else
-        {
-          ACC_OFFSET = 0;
-          BRK_OFFSET = 0;
-        }
-      }
-      lastResetBit = resetBit;
-
-      long ticks = 0;
-      if (BOX_BUDGET)
-      {
-        // TODO: implement POT reading
-      }
-      else
-      {
-        ticks = myEnc.read() - zeroOffset;
-        if (ticks > maxTicks)
-          ticks = maxTicks;
-        if (ticks < -maxTicks)
-          ticks = -maxTicks;
-      }
-
-      float degrees = (ticks / 2400.0f) * 360.0f; // 2400 ticks = 360°
-
-      int acc = abs(analogRead(ACC_PIN) - ACC_OFFSET);
-      int brk = abs(analogRead(BRK_PIN) - BRK_OFFSET);
-
-      acc = constrain(map(acc, 0, 109, 0, 255), 0, 255);
-      brk = constrain(map(brk, 0, 109, 0, 255), 0, 255);
-
-      if (acc > 255)
-        acc = 255;
-      if (brk > 255)
-        brk = 255;
-
-      if (acc < ACC_DEADZONE)
-        acc = 0;
-      if (brk < BRK_DEADZONE)
-        brk = 0;
-
-      if (ONLY_WHEEL == true)
-      {
-        acc = 0;
-        brk = 0;
-      }
-
-      proportionalControlBasic(degrees, acc, brk, ONLY_WHEEL);
-
-      // Handbrake and manual transmission raw analogs for host
-      char hbBit = '0';
-      if (HANDBRAKE_ENABLED)
-      {
-        hbBit = readHandbrakeBit();
-      }
-      else
-      {
-        hbBit = '0';
-      }
-
-      int gx255 = 0;
-      int gy255 = 0;
-      if (MANUAL_TX_ENABLED)
-      {
-        int gx = analogRead(MANUAL_TX_POT1_PIN); // 0..1023
-        int gy = analogRead(MANUAL_TX_POT2_PIN); // 0..1023
-        gx255 = constrain(map(gx, 0, 1023, 0, 255), 0, 255);
-        gy255 = constrain(map(gy, 0, 1023, 0, 255), 0, 255);
-      }
-
-      /*
-       * SERIAL LINE FORMAT (USB Serial to PC)
-       *
-       * Dash-separated:
-       *
-       *   <degrees>-<acc>-<brk>-<slave>-<hb>-<gx>-<gy>\r\n
-       *
-       * 1) <degrees> : Steering angle in degrees (float, 1 decimal).
-       * 2) <acc>     : Throttle mapped to 0..255.
-       * 3) <brk>     : Brake mapped to 0..255.
-       * 4) <slave>   : Raw line from slave MCU.
-       * 5) <hb>      : Handbrake bit ('1' pulled, '0' otherwise).
-       * 6) <gx>      : Manual transmission X analog in 0..255.
-       * 7) <gy>      : Manual transmission Y analog in 0..255.
-       */
-
-      // Print to USB (host)
-      Serial.print(degrees, 1);
-      Serial.print('-');
-      Serial.print(acc);
-      Serial.print('-');
-      Serial.print(brk);
-      Serial.print('-');
-      Serial.print(lineBuf);
-      Serial.print('-');
-      Serial.print(hbBit);
-      Serial.print('-');
-      Serial.print(gx255);
-      Serial.print('-');
-      Serial.println(gy255);
-
-      // Print to slave (minimal format)
-      link.print(degrees, 1);
-      link.print('-');
-      link.print(acc);
-      link.print('-');
-      link.println(brk);
-
-      lineLen = 0;
+      gotLinkLine = true;
+      break; // lascia eventuali byte per il prossimo loop()
     }
     else
     {
@@ -442,10 +325,156 @@ void loop()
       }
       else
       {
-        lineBuf[lineLen] = '\0';
-        Serial.println(lineBuf);
+        // overflow: scarta e ricomincia
         lineLen = 0;
       }
     }
   }
+
+  // --- PC (USB Serial) ---
+  while (Serial.available())
+  {
+    char ch = (char)Serial.read();
+    if (ch == '\n')
+    {
+      if (linePcLen > 0 && linePcBuf[linePcLen - 1] == '\r')
+        linePcLen--;
+      linePcBuf[linePcLen] = '\0';
+      gotPcLine = true;
+      break;
+    }
+    else
+    {
+      if (linePcLen < sizeof(linePcBuf) - 1)
+      {
+        linePcBuf[linePcLen++] = ch;
+      }
+      else
+      {
+        linePcLen = 0;
+      }
+    }
+  }
+
+  // --- usa/stampa SOLO quando hai una riga completa ---
+  if (gotLinkLine)
+  {
+    Serial.print("wheel -> ");
+    Serial.println(lineBuf);
+    // ...processa lineBuf...
+    lineLen = 0;
+    gotLinkLine = false;
+  }
+
+  if (gotPcLine)
+  {
+    Serial.print("pc -> ");
+    Serial.println(linePcBuf);
+    // ...processa linePcBuf...
+    linePcLen = 0;
+    gotPcLine = false;
+  }
+
+  bool resetBit = extractResetBit(lineBuf);
+  if (resetBit && !lastResetBit)
+  {
+    if (!BOX_BUDGET)
+      zeroOffset = myEnc.read();
+    else
+      POT_OFFSET = analogRead(POT_PIN);
+
+    if (!ONLY_WHEEL)
+    {
+      ACC_OFFSET = analogRead(ACC_PIN);
+      BRK_OFFSET = analogRead(BRK_PIN);
+    }
+    else
+    {
+      ACC_OFFSET = 0;
+      BRK_OFFSET = 0;
+    }
+  }
+  lastResetBit = resetBit;
+
+  long ticks = 0;
+  if (BOX_BUDGET)
+  {
+    // TODO: implement POT reading
+  }
+  else
+  {
+    ticks = myEnc.read() - zeroOffset;
+    if (ticks > maxTicks)
+      ticks = maxTicks;
+    if (ticks < -maxTicks)
+      ticks = -maxTicks;
+  }
+
+  float degrees = (ticks / 2400.0f) * 360.0f; // 2400 ticks = 360°
+
+  int acc = abs(analogRead(ACC_PIN) - ACC_OFFSET);
+  int brk = abs(analogRead(BRK_PIN) - BRK_OFFSET);
+
+  acc = constrain(map(acc, 0, 109, 0, 255), 0, 255);
+  brk = constrain(map(brk, 0, 109, 0, 255), 0, 255);
+
+  if (acc > 255)
+    acc = 255;
+  if (brk > 255)
+    brk = 255;
+
+  if (acc < ACC_DEADZONE)
+    acc = 0;
+  if (brk < BRK_DEADZONE)
+    brk = 0;
+
+  if (ONLY_WHEEL == true)
+  {
+    acc = 0;
+    brk = 0;
+  }
+
+  proportionalControlBasic(degrees, acc, brk, ONLY_WHEEL);
+
+  // Handbrake and manual transmission raw analogs for host
+  char hbBit = '0';
+  if (HANDBRAKE_ENABLED)
+    hbBit = readHandbrakeBit();
+
+  else
+    hbBit = '0';
+
+  int gx255 = 0;
+  int gy255 = 0;
+  if (MANUAL_TX_ENABLED)
+  {
+    int gx = analogRead(MANUAL_TX_POT1_PIN); // 0..1023
+    int gy = analogRead(MANUAL_TX_POT2_PIN); // 0..1023
+    gx255 = constrain(map(gx, 0, 1023, 0, 255), 0, 255);
+    gy255 = constrain(map(gy, 0, 1023, 0, 255), 0, 255);
+  }
+
+  // Print to USB (host)
+  Serial.print(degrees, 1);
+  Serial.print('-');
+  Serial.print(acc);
+  Serial.print('-');
+  Serial.print(brk);
+  Serial.print('-');
+  Serial.print(lineBuf);
+  Serial.print('-');
+  Serial.print(hbBit);
+  Serial.print('-');
+  Serial.print(gx255);
+  Serial.print('-');
+  Serial.println(gy255);
+
+  // Print to slave (minimal format)
+  link.print(degrees, 1);
+  link.print('-');
+  link.print(acc);
+  link.print('-');
+  link.println(brk);
+
+  lineLen = 0;
 }
