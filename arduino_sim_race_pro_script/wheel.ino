@@ -134,7 +134,7 @@ void setup()
   Wire.begin();
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 
-  Serial.begin(BAUD);
+  Serial.begin(9600);
   link.begin(BAUD);
 
   pinMode(RESET_PIN, INPUT_PULLUP);
@@ -187,9 +187,11 @@ void loop()
     {
       link.print(keys[i] ? '1' : '0');
       link.print('-');
+      Serial.print(keys[i] ? '1-' : '0-');
     }
     link.print(resetPressed ? '1' : '0');
     link.print('\n');
+    Serial.println(resetPressed ? '1' : '0');
   }
 
   // ######### READ DATA FROM BOX (TELEMETRY) #########
