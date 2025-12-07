@@ -1,10 +1,12 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <SoftwareSerial.h>
+#include <NeoSWSerial.h>
 #include <string.h>
 
+
 #define SCREEN_WIDTH 128
+
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
@@ -28,8 +30,8 @@ const uint8_t RESET_PIN = 12;
 const uint8_t ledPins[3] = {A2, A1, A0};
 
 // SoftwareSerial su D2 (RX) e D3 (TX)
-SoftwareSerial link(2, 3); // RX=D2, TX=D3
-const unsigned long BAUD = 57600;
+NeoSWSerial link(2, 3); // RX=D2, TX=D3
+const unsigned long BAUD = 38400;
 
 // Stato display
 int lastActive = -1; // -1 per forzare primo disegno

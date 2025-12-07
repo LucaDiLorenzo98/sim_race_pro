@@ -4,8 +4,20 @@
 // No need to install SoftwareSerial, but you have to
 // install Encoder library (use Arduino IDE Library Manager)
 
-#include <SoftwareSerial.h>
+#include <NeoSWSerial.h>
 #include <Encoder.h>
+#include <stdlib.h> // dtostrf
+#include <stdio.h>  // snprintf
+
+// Debug mode
+#define DEBUG_USB 0
+#if DEBUG_USB
+  #define DBG_PRINT(x)   Serial.print(x)
+  #define DBG_PRINTLN(x) Serial.println(x)
+#else
+  #define DBG_PRINT(x)   do {} while (0)
+  #define DBG_PRINTLN(x) do {} while (0)
+#endif
 
 const char *FW_VERSION = "ver. 1.1.0";
 
@@ -32,11 +44,10 @@ bool PEDALS_VIBRATION_ENABLED = false;
 
 // #####################################################
 
-// Serial communication variables (master <-> slave MCU)
 static const uint8_t RX_PIN = 5; // master RX (connect to slave TX)
 static const uint8_t TX_PIN = 6; // master TX (optional to slave RX)
-SoftwareSerial link(RX_PIN, TX_PIN);
-static const unsigned long LINK_BAUD = 57600; // must match the slave
+NeoSWSerial link(RX_PIN, TX_PIN);
+static const unsigned long LINK_BAUD = 38400; // must match the slave
 static const unsigned long USB_BAUD = 115200; // PC Serial Monitor
 
 // High-res. wheel encoder (quadrature on D2,D3)
@@ -52,6 +63,8 @@ int BRK_OFFSET = 0;
 int POT_OFFSET = 0; // only BOX_BUDGET
 int ACC_DEADZONE = 10;
 int BRK_DEADZONE = 10;
+int ACC_RANGE = 109;
+int BRK_RANGE = 109;
 
 // Pedals Vibratrion System (optional)
 const uint8_t VIB_PIN = A2;
@@ -95,357 +108,359 @@ static const unsigned long telemForwardIntervalMs = 40; // max ~25 Hz forward to
 
 bool extractResetBit(const char *s)
 {
-  int len = 0;
-  while (s[len] != '\0')
-    len++;
-  for (int i = len - 1; i >= 0; --i)
-  {
-    if (s[i] == '0')
-      return false;
-    if (s[i] == '1')
-      return true;
-  }
-  return false; // default if not found
+    int len = 0;
+    while (s[len] != '\0')
+        len++;
+    for (int i = len - 1; i >= 0; --i)
+    {
+        if (s[i] == '0')
+            return false;
+        if (s[i] == '1')
+            return true;
+    }
+    return false; // default if not found
 }
 
 char readHandbrakeBit()
 {
-  int v = digitalRead(HANDBRAKE_PIN);
-  return (v == LOW) ? '1' : '0';
+    int v = digitalRead(HANDBRAKE_PIN);
+    return (v == LOW) ? '1' : '0';
 }
 
 void moveMotorToLeft(int vel)
 {
-  analogWrite(RPWM, vel);
-  analogWrite(LPWM, 0);
+    analogWrite(RPWM, vel);
+    analogWrite(LPWM, 0);
 }
 
 void moveMotorToRight(int vel)
 {
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, vel);
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, vel);
 }
 
 void stopMotor()
 {
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, 0);
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, 0);
 }
 
 void enableMotor()
 {
-  digitalWrite(REN, HIGH);
-  digitalWrite(LEN, HIGH);
+    digitalWrite(REN, HIGH);
+    digitalWrite(LEN, HIGH);
 }
 
 void disableMotor()
 {
-  digitalWrite(REN, LOW);
-  digitalWrite(LEN, LOW);
+    digitalWrite(REN, LOW);
+    digitalWrite(LEN, LOW);
 }
 
 int proportionalControlBasic(float degrees, int acc, int brake, bool onlyWheel)
 {
-  int pwm = 0;
+    int pwm = 0;
 
-  if (degrees >= 450.0f || degrees <= -450.0f)
-  {
-    stopMotor();
-    disableMotor();
-    return 0;
-  }
-  else
-  {
-    enableMotor();
-  }
-
-  int effort = (brake > 0) ? brake : (acc > 0 ? acc : 0);
-
-  if (onlyWheel)
-    effort = 255;
-
-  if (effort > 0)
-  {
-    if (degrees >= pwm_threshold)
+    if (degrees >= 450.0f || degrees <= -450.0f)
     {
-      long angle = (long)degrees;
-      long prod = angle * (long)effort;
-      pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
-      if (pwm > 0 && pwm < pwm_floor)
-        pwm = pwm_floor;
-      moveMotorToLeft(pwm);
-    }
-    else if (degrees <= -pwm_threshold)
-    {
-      long angle = (long)(-degrees);
-      long prod = angle * (long)effort;
-      pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
-      if (pwm > 0 && pwm < pwm_floor)
-        pwm = pwm_floor;
-      moveMotorToRight(pwm);
+        stopMotor();
+        disableMotor();
+        return 0;
     }
     else
     {
-      stopMotor();
-      pwm = 0;
+        enableMotor();
     }
-  }
-  else
-  {
-    stopMotor();
-    pwm = 0;
-  }
 
-  return pwm;
+    int effort = (brake > 0) ? brake : (acc > 0 ? acc : 0);
+
+    if (onlyWheel)
+        effort = 255;
+
+    if (effort > 0)
+    {
+        if (degrees >= pwm_threshold)
+        {
+            long angle = (long)degrees;
+            long prod = angle * (long)effort;
+            pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
+            if (pwm > 0 && pwm < pwm_floor)
+                pwm = pwm_floor;
+            moveMotorToLeft(pwm);
+        }
+        else if (degrees <= -pwm_threshold)
+        {
+            long angle = (long)(-degrees);
+            long prod = angle * (long)effort;
+            pwm = map(prod, 0L, 114750L, pwm_min, pwm_max);
+            if (pwm > 0 && pwm < pwm_floor)
+                pwm = pwm_floor;
+            moveMotorToRight(pwm);
+        }
+        else
+        {
+            stopMotor();
+            pwm = 0;
+        }
+    }
+    else
+    {
+        stopMotor();
+        pwm = 0;
+    }
+
+    return pwm;
 }
 
 void setup()
 {
-  // USB serial
-  Serial.begin(USB_BAUD);
-  delay(50);
-  Serial.print(F("[MASTER] "));
-  Serial.println(FW_VERSION);
+    // USB serial
+    Serial.begin(USB_BAUD);
 
-  // Validation rules
-  if ((BOX_FULL + BOX_MEDIUM + BOX_BUDGET) != 1)
-  {
-    Serial.println("SETUP ERROR: Only one BOX_ variable can be true");
-    return;
-  }
+    delay(50);
+    DBG_PRINT(F("[MASTER] "));
+    DBG_PRINTLN(FW_VERSION);
 
-  // Link with slave
-  link.begin(LINK_BAUD);
-
-  // Box setup
-  if (BOX_FULL == true)
-  {
-    pinMode(RPWM, OUTPUT);
-    pinMode(LPWM, OUTPUT);
-    pinMode(REN, OUTPUT);
-    pinMode(LEN, OUTPUT);
-
-    // Raise PWM frequency above audible (~31 kHz)
-    TCCR1B = (TCCR1B & 0b11111000) | 0x01; // Timer1 -> pins 9,10  (LPWM=10)
-    TCCR2B = (TCCR2B & 0b11111000) | 0x01; // Timer2 -> pins 3,11  (RPWM=11)
-
-    enableMotor();
-    Serial.println("Force-feedback setup done");
-  }
-
-  if (BOX_FULL == true || BOX_MEDIUM == true)
-  {
-    zeroOffset = myEnc.read(); // initial zero at current position
-    Serial.println("High-res. encoder setup done");
-  }
-
-  if (BOX_BUDGET)
-  {
-    pinMode(POT_PIN, INPUT);
-    Serial.println("High-res. encoder setup done");
-  }
-
-  // Pedals setup
-  if (ONLY_WHEEL == false)
-  {
-    pinMode(ACC_PIN, INPUT);
-    pinMode(BRK_PIN, INPUT);
-    ACC_OFFSET = analogRead(ACC_PIN);
-    BRK_OFFSET = analogRead(BRK_PIN);
-    Serial.println("Pedals setup done");
-
-    if (PEDALS_CLUTCH == true)
+    // Validation rules
+    if ((BOX_FULL + BOX_MEDIUM + BOX_BUDGET) != 1)
     {
-      pinMode(CLUTCH_PIN, INPUT);
-      Serial.println("Clutch pedal setup done");
+        Serial.println("SETUP ERROR: Only one BOX_ variable can be true");
+        return;
     }
-  }
-  else
-  {
-    Serial.println("ONLY Wheel option enabled");
-  }
 
-  // Additional modules setup
-  if (HANDBRAKE_ENABLED)
-  {
-    pinMode(HANDBRAKE_PIN, INPUT_PULLUP); // button to GND
-    Serial.println("Handbrake setup done");
-  }
-  else
-  {
-    Serial.println("Handbrake not enabled");
-  }
+    // Link with slave
+    link.begin(LINK_BAUD);
 
-  if (MANUAL_TX_ENABLED)
-  {
-    pinMode(MANUAL_TX_POT1_PIN, INPUT);
-    pinMode(MANUAL_TX_POT2_PIN, INPUT);
-    Serial.println("Manual gearbox setup done");
-  }
-  else
-  {
-    Serial.println("Manual gearbox not enabled");
-  }
+    // Box setup
+    if (BOX_FULL == true)
+    {
+        pinMode(RPWM, OUTPUT);
+        pinMode(LPWM, OUTPUT);
+        pinMode(REN, OUTPUT);
+        pinMode(LEN, OUTPUT);
 
-  if (PEDALS_VIBRATION_ENABLED)
-  {
-    pinMode(VIB_PIN, OUTPUT);
-    pinMode(VIB2_PIN, OUTPUT);
-    Serial.println("Pedals vibration system setup done");
-  }
-  else
-  {
-    Serial.println("Pedals vibration system not enabled");
-  }
+        // Raise PWM frequency above audible (~31 kHz)
+        TCCR1B = (TCCR1B & 0b11111000) | 0x01; // Timer1 -> pins 9,10  (LPWM=10)
+        TCCR2B = (TCCR2B & 0b11111000) | 0x01; // Timer2 -> pins 3,11  (RPWM=11)
+
+        enableMotor();
+        Serial.println("Force-feedback setup done");
+    }
+
+    if (BOX_FULL == true || BOX_MEDIUM == true)
+    {
+        zeroOffset = myEnc.read(); // initial zero at current position
+        Serial.println("High-res. encoder setup done");
+    }
+
+    if (BOX_BUDGET)
+    {
+        pinMode(POT_PIN, INPUT);
+        Serial.println("High-res. encoder setup done");
+    }
+
+    // Pedals setup
+    if (ONLY_WHEEL == false)
+    {
+        pinMode(ACC_PIN, INPUT);
+        pinMode(BRK_PIN, INPUT);
+        ACC_OFFSET = analogRead(ACC_PIN);
+        BRK_OFFSET = analogRead(BRK_PIN);
+        Serial.println("Pedals setup done");
+
+        if (PEDALS_CLUTCH == true)
+        {
+            pinMode(CLUTCH_PIN, INPUT);
+            Serial.println("Clutch pedal setup done");
+        }
+    }
+    else
+    {
+        Serial.println("ONLY Wheel option enabled");
+    }
+
+    // Additional modules setup
+    if (HANDBRAKE_ENABLED)
+    {
+        pinMode(HANDBRAKE_PIN, INPUT_PULLUP); // button to GND
+        Serial.println("Handbrake setup done");
+    }
+    else
+    {
+        Serial.println("Handbrake not enabled");
+    }
+
+    if (MANUAL_TX_ENABLED)
+    {
+        pinMode(MANUAL_TX_POT1_PIN, INPUT);
+        pinMode(MANUAL_TX_POT2_PIN, INPUT);
+        Serial.println("Manual gearbox setup done");
+    }
+    else
+    {
+        Serial.println("Manual gearbox not enabled");
+    }
+
+    if (PEDALS_VIBRATION_ENABLED)
+    {
+        pinMode(VIB_PIN, OUTPUT);
+        pinMode(VIB2_PIN, OUTPUT);
+        Serial.println("Pedals vibration system setup done");
+    }
+    else
+    {
+        Serial.println("Pedals vibration system not enabled");
+    }
 }
 
 void loop()
 {
-  // Read characters from slave until newline
-  while (link.available())
-  {
-    char ch = (char)link.read();
-
-    if (ch == '\n')
+    // Read characters from slave until newline
+    while (link.available())
     {
-      if (lineLen > 0 && lineBuf[lineLen - 1] == '\r')
-        lineLen--;
-      lineBuf[lineLen] = '\0';
+        char ch = (char)link.read();
 
-      bool resetBit = extractResetBit(lineBuf);
-      if (resetBit && !lastResetBit)
-      {
-        if (!BOX_BUDGET)
-          zeroOffset = myEnc.read();
-        else
-          POT_OFFSET = analogRead(POT_PIN);
-
-        if (!ONLY_WHEEL)
+        if (ch == '\n')
         {
-          ACC_OFFSET = analogRead(ACC_PIN);
-          BRK_OFFSET = analogRead(BRK_PIN);
+            if (lineLen > 0 && lineBuf[lineLen - 1] == '\r')
+                lineLen--;
+            lineBuf[lineLen] = '\0';
+
+            bool resetBit = extractResetBit(lineBuf);
+            if (resetBit && !lastResetBit)
+            {
+                if (!BOX_BUDGET)
+                    zeroOffset = myEnc.read();
+                else
+                    POT_OFFSET = analogRead(POT_PIN);
+
+                if (!ONLY_WHEEL)
+                {
+                    ACC_OFFSET = analogRead(ACC_PIN);
+                    BRK_OFFSET = analogRead(BRK_PIN);
+                }
+                else
+                {
+                    ACC_OFFSET = 0;
+                    BRK_OFFSET = 0;
+                }
+            }
+            lastResetBit = resetBit;
+
+            long ticks = 0;
+            if (BOX_BUDGET)
+            {
+                // TODO: implement POT reading
+            }
+            else
+            {
+                ticks = myEnc.read() - zeroOffset;
+                if (ticks > maxTicks)
+                    ticks = maxTicks;
+                if (ticks < -maxTicks)
+                    ticks = -maxTicks;
+            }
+
+            float degrees = (ticks / 2400.0f) * 360.0f; // 2400 ticks = 360°
+
+            int acc = abs(analogRead(ACC_PIN) - ACC_OFFSET);
+            int brk = abs(analogRead(BRK_PIN) - BRK_OFFSET);
+
+            acc = constrain(map(acc, 0, ACC_RANGE, 0, 255), 0, 255);
+            brk = constrain(map(brk, 0, BRK_RANGE, 0, 255), 0, 255);
+
+            if (acc > 255)
+                acc = 255;
+            if (brk > 255)
+                brk = 255;
+
+            if (acc < ACC_DEADZONE)
+                acc = 0;
+            if (brk < BRK_DEADZONE)
+                brk = 0;
+
+            if (ONLY_WHEEL == true)
+            {
+                acc = 0;
+                brk = 0;
+            }
+
+            proportionalControlBasic(degrees, acc, brk, ONLY_WHEEL);
+
+            // Handbrake and manual transmission raw analogs for host
+            char hbBit = '0';
+            if (HANDBRAKE_ENABLED)
+            {
+                hbBit = readHandbrakeBit();
+            }
+            else
+            {
+                hbBit = '0';
+            }
+
+            int gx255 = 0;
+            int gy255 = 0;
+            if (MANUAL_TX_ENABLED)
+            {
+                int gx = analogRead(MANUAL_TX_POT1_PIN); // 0..1023
+                int gy = analogRead(MANUAL_TX_POT2_PIN); // 0..1023
+                gx255 = constrain(map(gx, 0, 1023, 0, 255), 0, 255);
+                gy255 = constrain(map(gy, 0, 1023, 0, 255), 0, 255);
+            }
+
+            /*
+             * SERIAL LINE FORMAT (USB Serial to PC)
+             *
+             * Dash-separated:
+             *
+             *   <degrees>-<acc>-<brk>-<slave>-<hb>-<gx>-<gy>\r\n
+             *
+             * 1) <degrees> : Steering angle in degrees (float, 1 decimal).
+             * 2) <acc>     : Throttle mapped to 0..255.
+             * 3) <brk>     : Brake mapped to 0..255.
+             * 4) <slave>   : Raw line from slave MCU.
+             * 5) <hb>      : Handbrake bit ('1' pulled, '0' otherwise).
+             * 6) <gx>      : Manual transmission X analog in 0..255.
+             * 7) <gy>      : Manual transmission Y analog in 0..255.
+             */
+
+            // Print to USB (host) one line
+            char usbBuf[64];
+            char degBuf[12];
+            dtostrf(degrees, 0, 1, degBuf); // convierte float a "123.4"
+
+            snprintf(usbBuf, sizeof(usbBuf), "%s-%d-%d-%s-%c-%d-%d",
+                     degBuf,
+                     acc,
+                     brk,
+                     lineBuf,
+                     hbBit,
+                     gx255,
+                     gy255);
+
+            Serial.println(usbBuf);
+
+            // Print to slave (minimal format)
+            link.print(degrees, 1);
+            link.print('-');
+            link.print(acc);
+            link.print('-');
+            link.println(brk);
+
+            lineLen = 0;
         }
         else
         {
-          ACC_OFFSET = 0;
-          BRK_OFFSET = 0;
+            if (lineLen < sizeof(lineBuf) - 1)
+            {
+                lineBuf[lineLen++] = ch;
+            }
+            else
+            {
+                lineBuf[lineLen] = '\0';
+                DBG_PRINTLN(lineBuf);
+                lineLen = 0;
+            }
         }
-      }
-      lastResetBit = resetBit;
-
-      long ticks = 0;
-      if (BOX_BUDGET)
-      {
-        // TODO: implement POT reading
-      }
-      else
-      {
-        ticks = myEnc.read() - zeroOffset;
-        if (ticks > maxTicks)
-          ticks = maxTicks;
-        if (ticks < -maxTicks)
-          ticks = -maxTicks;
-      }
-
-      float degrees = (ticks / 2400.0f) * 360.0f; // 2400 ticks = 360°
-
-      int acc = abs(analogRead(ACC_PIN) - ACC_OFFSET);
-      int brk = abs(analogRead(BRK_PIN) - BRK_OFFSET);
-
-      acc = constrain(map(acc, 0, 109, 0, 255), 0, 255);
-      brk = constrain(map(brk, 0, 109, 0, 255), 0, 255);
-
-      if (acc > 255)
-        acc = 255;
-      if (brk > 255)
-        brk = 255;
-
-      if (acc < ACC_DEADZONE)
-        acc = 0;
-      if (brk < BRK_DEADZONE)
-        brk = 0;
-
-      if (ONLY_WHEEL == true)
-      {
-        acc = 0;
-        brk = 0;
-      }
-
-      proportionalControlBasic(degrees, acc, brk, ONLY_WHEEL);
-
-      // Handbrake and manual transmission raw analogs for host
-      char hbBit = '0';
-      if (HANDBRAKE_ENABLED)
-      {
-        hbBit = readHandbrakeBit();
-      }
-      else
-      {
-        hbBit = '0';
-      }
-
-      int gx255 = 0;
-      int gy255 = 0;
-      if (MANUAL_TX_ENABLED)
-      {
-        int gx = analogRead(MANUAL_TX_POT1_PIN); // 0..1023
-        int gy = analogRead(MANUAL_TX_POT2_PIN); // 0..1023
-        gx255 = constrain(map(gx, 0, 1023, 0, 255), 0, 255);
-        gy255 = constrain(map(gy, 0, 1023, 0, 255), 0, 255);
-      }
-
-      /*
-       * SERIAL LINE FORMAT (USB Serial to PC)
-       *
-       * Dash-separated:
-       *
-       *   <degrees>-<acc>-<brk>-<slave>-<hb>-<gx>-<gy>\r\n
-       *
-       * 1) <degrees> : Steering angle in degrees (float, 1 decimal).
-       * 2) <acc>     : Throttle mapped to 0..255.
-       * 3) <brk>     : Brake mapped to 0..255.
-       * 4) <slave>   : Raw line from slave MCU.
-       * 5) <hb>      : Handbrake bit ('1' pulled, '0' otherwise).
-       * 6) <gx>      : Manual transmission X analog in 0..255.
-       * 7) <gy>      : Manual transmission Y analog in 0..255.
-       */
-
-      // Print to USB (host)
-      Serial.print(degrees, 1);
-      Serial.print('-');
-      Serial.print(acc);
-      Serial.print('-');
-      Serial.print(brk);
-      Serial.print('-');
-      Serial.print(lineBuf);
-      Serial.print('-');
-      Serial.print(hbBit);
-      Serial.print('-');
-      Serial.print(gx255);
-      Serial.print('-');
-      Serial.println(gy255);
-
-      // Print to slave (minimal format)
-      link.print(degrees, 1);
-      link.print('-');
-      link.print(acc);
-      link.print('-');
-      link.println(brk);
-
-      lineLen = 0;
     }
-    else
-    {
-      if (lineLen < sizeof(lineBuf) - 1)
-      {
-        lineBuf[lineLen++] = ch;
-      }
-      else
-      {
-        lineBuf[lineLen] = '\0';
-        Serial.println(lineBuf);
-        lineLen = 0;
-      }
-    }
-  }
 }
