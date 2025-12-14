@@ -26,6 +26,7 @@ class TelemetryFrame:
     g_vert: Optional[float] = None
     on_curb: Optional[bool] = None
     curb_side: Optional[str] = None  # "left" | "right" | "center" | None
+    rumble: float = 0.0           # 0..1 generic vibration intensity
 
 
 # =========================
@@ -146,6 +147,7 @@ class F1TelemetryReader:
             g_vert=self._last_motion.get("g_vert"),
             on_curb=self._last_telem["on_curb"],
             curb_side=self._last_telem["curb_side"],
+            rumble=0.0
         )
 
     def close(self) -> None:
@@ -196,17 +198,35 @@ class ACCTelemetryReader:
 
         on_curb = bool(getattr(phy, "kerb_vibration", 0.0) > 0.02)
 
+        # ACC Gears: 0=R, 1=N, 2=1st ... Script expects: -1=R, 0=N, 1=1st ...
+        raw_gear = int(getattr(phy, "gear", 0))
+        fixed_gear = raw_gear - 1
+
+        # Vibration / Rumble Logic
+        # AC provides specific vibrations. We sum them up for a "rich" feel.
+        v_kerb = float(getattr(phy, "kerb_vibration", 0.0))
+        v_slip = float(getattr(phy, "slip_vibration", 0.0))
+        v_g = float(getattr(phy, "g_vibration", 0.0))
+        v_abs = float(getattr(phy, "abs_vibration", 0.0))
+        
+        # Combined rumble (clamped 0..1 generic scale here, multiplied by 255 later)
+        total_rumble = (v_kerb * 1.0) + (v_slip * 0.5) + (v_g * 0.2) + (v_abs * 0.8)
+        
+        # Force on_curb if kerb vibe is significant
+        if v_kerb > 0.05: on_curb = True
+
         return TelemetryFrame(
             game="Assetto Corsa Competizione",
             speed_kmh=float(getattr(phy, "speed_kmh", 0.0)),
-            gear=int(getattr(phy, "gear", 0)),
+            gear=fixed_gear,
             throttle=float(getattr(phy, "gas", 0.0)),
             brake=float(getattr(phy, "brake", 0.0)),
             steer=None,  # You can compute from steerAngle/lock if needed later
             rpm=int(getattr(phy, "rpms", 0)),
             g_lat=g_lat, g_lon=g_lon, g_vert=g_vert,
             on_curb=on_curb,
-            curb_side=None  # ACC doesn't directly expose left/right curb
+            curb_side=None,  # ACC doesn't directly expose left/right curb
+            rumble=total_rumble
         )
 
     def close(self) -> None:

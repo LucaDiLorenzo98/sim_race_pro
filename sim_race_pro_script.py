@@ -12,7 +12,9 @@ TX_RATE_HZ = 15
 HANDBRAKE_ENABLED = False
 MANUAL_TX_ENABLED = False
 KEYBOARD_SIM_ENABLED = True
-SELECTED_GAME = "F1"
+
+# CHOOSE BETWEEN "ACC" OR "F1" (F1 23/24/25)
+SELECTED_GAME = "ACC"
 
 GEAR_Y_MAP = {"up_max": 125, "down_min": 140}
 INVERT_GX = True
@@ -208,6 +210,7 @@ try:
             pkt.gear = int(getattr(frame, "gear", 0))
             pkt.rpm = int(getattr(frame, "rpm", 0))
             pkt.oncurb = 1 if getattr(frame, "on_curb", 0) else 0
+            pkt.rumble = int(float(getattr(frame, "rumble", 0)) * 100)
             side = str(getattr(frame, "curb_side", "")).lower()
             pkt.curbside = -1 if side.startswith('l') else 1 if side.startswith('r') else 0
             
