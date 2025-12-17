@@ -233,5 +233,149 @@ class ACCTelemetryReader:
         if self.asm:
             try:
                 self.asm.close()
-            finally:
-                self.asm = None
+
+# =========================
+# Forza Horizon/Motorsport — UDP reader
+# =========================
+class ForzaTelemetryReader:
+    """
+    Forza "Data Out" Reader.
+    Supports Forza Horizon 4/5 and Motorsport 7.
+    - Default Port: 5300 (or user configured)
+    - Data Out format (Sled/Dash) ~324 bytes usually (Standard 'Data Out' in settings).
+    """
+
+    # We use a struct to unpack the standard 'Data Out' format (Dash).
+    # Format: s32 IsRaceOn, u32 TimestampMS, f32 MaxRPM, f32 IdleRPM, f32 CurRPM ...
+    
+    def __init__(self, host: str = "0.0.0.0", port: int = 5300):
+        self.addr = (host, port)
+        self.sock: Optional[socket.socket] = None
+
+    def start(self) -> None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.02)
+        sock.bind(self.addr)
+        self.sock = sock
+        print(f"Forza Reader started on {self.addr}. Set 'Data Out' in game options.", flush=True)
+
+    def read_frame(self, timeout_s: float = 0.05) -> Optional[TelemetryFrame]:
+        if not self.sock: return None
+        t0 = time.time()
+        
+        last_data = None
+        while time.time() - t0 < timeout_s:
+            try:
+                buf, _ = self.sock.recvfrom(1024)
+                if len(buf) >= 311:
+                    last_data = buf
+            except socket.timeout:
+                break
+        
+        if not last_data: return None
+
+        # Helper to unpack
+        def get_f32(offset): return struct.unpack_from("<f", last_data, offset)[0]
+        def get_u8(offset):  return struct.unpack_from("<B", last_data, offset)[0]
+        def get_s8(offset):  return struct.unpack_from("<b", last_data, offset)[0]
+        
+        # Forza 'Dash' is usually 324 bytes. 'Sled' is 232.
+        # We try to detect by size or just try parsing.
+        # If it's the full Dash format:
+        
+        # RPM at 16
+        rpm = get_f32(16)
+        
+        # Speed.. often we can use Magnitude of Velocity(X,Y,Z) at 32,36,40
+        vx = get_f32(32)
+        vy = get_f32(36)
+        vz = get_f32(40)
+        speed_ms = (vx*vx + vy*vy + vz*vz) ** 0.5
+        speed_kmh = speed_ms * 3.6
+        
+        # Accel/G-force from 20,24,28
+        # These are usually in m/s^2. 1G ~= 9.8
+        gx = get_f32(20) / 9.8
+        gy = get_f32(24) / 9.8
+        gz = get_f32(28) / 9.8
+        
+        # Inputs & Gear are at the end of the Dash packet (offset ~300+)
+        # If the packet is large enough (>= 311 or 324)
+        if len(last_data) > 300:
+            gear_raw = get_u8(307) # 0=R, 1=N, 2=1st... ? or 11=N?
+            # Forza: 0=Reverse, 11=Neutral? No, check specific version.
+            # Usually: 0=R, 11=N (in some), or just 0=R, 1=N, 2=1st.
+            # Let's map standard assumption:
+            # 0=Reverse, 11=Neutral (common in Forza), 1..10 = Gears.
+            # BUT older Forza or some settings: 0=R, 1=N, 2=1...
+            # We'll try to deduce or just map 0->R, 11->N for now.
+            # Actually, most docs say: 0 = Reverse, 11 = Neutral, 1-10 = Gears 1-10.
+            
+            gear = 0
+            if gear_raw == 0: gear = -1
+            elif gear_raw == 11: gear = 0
+            else: gear = gear_raw
+            
+            accel_in = get_u8(303) / 255.0
+            brake_in = get_u8(304) / 255.0
+            steer_in = get_s8(308) / 127.0
+        else:
+            # Fallback for Sled (no inputs/gear in Sled usually? Sled is motion only?)
+            # Sled actually has CarOrdinal etc but maybe not inputs.
+            gear = 0
+            accel_in = 0
+            brake_in = 0
+            steer_in = 0
+
+        # Rumble / Curb
+        # SurfaceRumble can be used. It's an array of 4 floats at offset 188?
+        # 4*4 ints (WheelOnRumble) at 132 maybe?
+        # Offsets:
+        # 0: RaceOn .. 16: RPM
+        # 20: Accel .. 32: Vel .. 44: AngVel .. 56: Yaw
+        # 68: NormSusp (4)
+        # 84: SlipRatio (4)
+        # 100: WheelRot (4)
+        # 116: WheelOnRumble (4 ints) -> 116, 120, 124, 128
+        
+        rumble_fl = struct.unpack_from("<i", last_data, 116)[0]
+        rumble_fr = struct.unpack_from("<i", last_data, 120)[0]
+        rumble_rl = struct.unpack_from("<i", last_data, 124)[0]
+        rumble_rr = struct.unpack_from("<i", last_data, 128)[0]
+        
+        on_curb = (rumble_fl + rumble_fr + rumble_rl + rumble_rr) > 0
+        
+        # Calculate total rumble intensity from TireSlip or SurfaceRumble if available
+        # SurfaceRumble (4 floats) at 148?
+        # 116 (OnRumble - 4s32 = 16 bytes) -> 132
+        # 132 (Puddle - 4f32 = 16 bytes) -> 148
+        # 148 (SurfaceRumble - 4f32 = 16 bytes) -> 164
+        
+        surf_fl = struct.unpack_from("<f", last_data, 148)[0]
+        surf_fr = struct.unpack_from("<f", last_data, 152)[0]
+        
+        rumble_intensity = max(surf_fl, surf_fr) / 10.0 # Scaling guess
+        rumble_intensity = min(max(rumble_intensity, 0.0), 1.0)
+        
+        return TelemetryFrame(
+            game="Forza",
+            speed_kmh=speed_kmh,
+            gear=gear,
+            throttle=accel_in,
+            brake=brake_in,
+            steer=steer_in,
+            rpm=int(rpm),
+            g_lat=gx, # Forza X is Right? Y is Up? Z is Fwd? 
+            # Forza: X=Right, Y=Up, Z=Forward.
+            # Standard: g_lat usually means Lateral (Left/Right). X is Lat.
+            # g_lon usually means Longitudinal (Accel/Brake). Z is Lon.
+            g_lon=gz, 
+            g_vert=gy, 
+            on_curb=bool(on_curb),
+            rumble=rumble_intensity
+        )
+
+    def close(self):
+        if self.sock:
+            self.sock.close()
+            self.sock = None

@@ -281,15 +281,22 @@ void loop()
             int barWidth = map(current_rpm_pct, 0, 100, 0, SCREEN_WIDTH);
             display.fillRect(0, 10, barWidth, 4, SSD1306_WHITE);
 
-            // Gear (Center)
-            display.setTextSize(4);
-            int gX = 52;
-            if (current_gear[0] == 'N') gX = 52;
-            else if (current_gear[0] == '1') gX = 54;
-            else if (strcmp(current_gear, "10") == 0) gX = 40;
-            
-            display.setCursor(gX, 16); // Moved up to 16
-            display.print(current_gear);
+            // Gear (Center) - OR Button Index if pressed
+            if (firstPressed > 0) {
+              display.setTextSize(3);
+              display.setCursor(25, 20); 
+              display.print(F("B:"));
+              display.print(firstPressed - 1);
+            } else {
+              display.setTextSize(4);
+              int gX = 52;
+              if (current_gear[0] == 'N') gX = 52;
+              else if (current_gear[0] == '1') gX = 54;
+              else if (strcmp(current_gear, "10") == 0) gX = 40;
+              
+              display.setCursor(gX, 16); 
+              display.print(current_gear);
+            }
 
             // Speed (Bottom Left)
             display.setTextSize(2);
