@@ -346,3 +346,7 @@ Third-party components listed above remain under their own licences.
 
 > Flashing the SimRacePro firmware replaces the original LucaDilo sketches on both
 > Arduinos. To go back, re-flash the original sketches.
+
+## AI Disclaimer
+
+The SimRacePro Custom Driver Software is mostly coded with assisance of Claude Code.
