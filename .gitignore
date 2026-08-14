@@ -1,2 +1,40 @@
-/.vscode/*
-/__pycache__/*
+# ── Visual Studio build output ────────────────────────────────────────────────
+x64/
+Debug/
+Release/
+SimRacePro/
+*.obj
+*.pdb
+*.idb
+*.iobj
+*.ipdb
+*.ilk
+*.exp
+*.res
+*.tlog
+*.recipe
+*.log
+*.lastbuildstate
+*.unsuccessfulbuild
+
+# ── Visual Studio user/IDE state ──────────────────────────────────────────────
+.vs/
+*.vcxproj.user
+*.vcxproj.filters
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+
+# ── Release packaging ─────────────────────────────────────────────────────────
+# Distribution ZIPs are attached to GitHub releases, not committed.
+SimRacePro-v*.zip
+SimRacePro-latest.zip
+github_release/
+
+# ── Runtime / local ───────────────────────────────────────────────────────────
+# The app writes its config to %APPDATA%\SimRacePro, but the debug log lands
+# next to the executable when started with -debug.
+simracepro_debug.log
+.claude/settings.local.json

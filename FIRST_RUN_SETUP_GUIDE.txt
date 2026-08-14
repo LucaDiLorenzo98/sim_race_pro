@@ -1,0 +1,239 @@
+=====================================================================
+  SimRacePro Custom Driver Software  v3.2.0
+  First-Run Setup Guide  -  READ ME BEFORE FIRST USE
+=====================================================================
+
+This guide walks you through the complete first-time setup, in the
+exact order the software will ask for things. Total time: ~15 minutes.
+
+The same information (plus per-game telemetry setup) is available in
+the software itself: main window > "Manual" button.
+
+NOTE: Once the Arduinos are flashed with the SimRacePro firmware, the
+original script from LucaDilo no longer works with your wheel. To go
+back, flash the Arduinos with the original sketches again.
+
+
+---------------------------------------------------------------------
+ WHAT YOU NEED
+---------------------------------------------------------------------
+
+  - Windows 10 or 11 (x64)
+  - The SimRacePro wheel base ("Base") connected via USB
+  - A free USB port (USB 2.0 or higher)
+  - The contents of this ZIP, unpacked to any folder
+    (SimRacePro.exe + the "Arduino files" folder must stay together)
+  - Arduino IDE 2.x (free) to flash the firmware - see Step 3
+
+
+---------------------------------------------------------------------
+ STEP 1  -  INSTALL THE ViGEmBus DRIVER
+---------------------------------------------------------------------
+
+SimRacePro creates a virtual Xbox 360 gamepad. This requires the
+free ViGEmBus driver (one-time install):
+
+  1. Download the latest installer from:
+     https://github.com/nefarius/ViGEmBus/releases/latest
+  2. Run the installer.
+  3. Restart your PC if the installer asks for it.
+
+Without ViGEmBus, games will not see the wheel as a controller.
+
+
+---------------------------------------------------------------------
+ STEP 2  -  INSTALL THE CH340 USB DRIVER (ONLY IF NEEDED)
+---------------------------------------------------------------------
+
+The Arduino Nano boards use a CH340 USB-to-serial chip. Windows
+usually installs the driver automatically. Only if the Base does not
+show up as a COM port in Windows Device Manager:
+
+  1. Download the driver from:
+     https://www.wch-ic.com/downloads/CH341SER_EXE.html
+  2. Install it and reconnect the USB cable.
+
+
+---------------------------------------------------------------------
+ STEP 3  -  FLASH THE FIRMWARE (BOTH ARDUINOS)
+---------------------------------------------------------------------
+
+Both Arduino Nano boards (Base and Wheel) must be flashed with the
+firmware versions matching this software (Base ver. 3.2.0, Wheel
+ver. 3.2.0). The sketches are included in this ZIP under
+"Arduino files".
+
+  1. Install the Arduino IDE 2.x:
+     https://www.arduino.cc/en/software
+
+  2. In the IDE, install the required libraries via
+     Sketch > Include Library > Manage Libraries:
+       - "Encoder" by Paul Stoffregen        (for the Base)
+       - "Adafruit GFX Library"              (for the Wheel display)
+       - "Adafruit SSD1306"                  (for the Wheel display)
+     (Wire, EEPROM and SoftwareSerial are built in - nothing to do.)
+
+  3. Flash the BASE:
+       - Open  Arduino files\sim_race_pro_box_script\
+               sim_race_pro_box_script.ino
+       - Connect the Base Arduino via USB
+       - Select board "Arduino Nano" (or your exact variant) and
+         its COM port, then click Upload
+
+  4. Flash the WHEEL:
+       - Open  Arduino files\sim_race_pro_wheel_script\
+               sim_race_pro_wheel_script.ino
+       - Connect the Wheel Arduino via USB
+       - Select the board and COM port, then click Upload
+
+  5. Reconnect everything: Wheel Arduino back into the steering
+     wheel, Base connected to this PC via USB.
+
+If the software later shows a "firmware version mismatch" message,
+it tells you which board is outdated - repeat the upload for that
+board.
+
+
+---------------------------------------------------------------------
+ STEP 4  -  FIRST LAUNCH
+---------------------------------------------------------------------
+
+Start SimRacePro.exe. On the first run the software guides you
+through the setup in this order:
+
+  1. WELCOME NOTICE
+     A reminder that both Arduinos must be flashed (Step 3).
+     Click OK once flashing is done.
+
+  2. CONNECTION
+     The software scans all COM ports and connects to the Base
+     automatically. Status is shown bottom-left in the main window
+     ("Searching for Wheel..." -> "Connected").
+
+  3. BOX HARDWARE SETTINGS (opens automatically)
+     Select your hardware setup:
+       - Sim Setup tier (Full / Medium / Budget)
+       - Optional hardware you have installed: pedal rumble motors,
+         handbrake, clutch pedal, H-pattern shifter, "Wheel Only"
+     Click "Save & Send to Box". The settings are stored on the
+     Base itself and survive power cycles.
+
+
+---------------------------------------------------------------------
+ STEP 5  -  BUTTON WIRING SETUP (WIZARD 1 OF 2)
+---------------------------------------------------------------------
+
+Because the GPIO wiring can differ between builds, the software
+first learns which physical button sits at which position on the
+wheel:
+
+  1. A dialog asks to start the wiring setup - click OK.
+  2. On the wheel image in the main window, one button position
+     lights up YELLOW at a time.
+  3. Press the matching physical button on your wheel.
+  4. If your wheel does not have a button at the highlighted
+     position, click "Skip this button".
+  5. Repeat until all positions are done.
+
+Each position times out after 30 seconds and is then treated as
+"not wired" - you can redo the wiring anytime via
+"Reset all Settings" + restart.
+
+
+---------------------------------------------------------------------
+ STEP 6  -  BUTTON CALIBRATION (WIZARD 2 OF 2)
+---------------------------------------------------------------------
+
+Now each wheel button gets an Xbox gamepad function (A, B, X, Y,
+DPad, Start, ...):
+
+  1. A dialog asks to start the calibration - click OK.
+  2. The wizard shows which Xbox function is next - press the wheel
+     button you want it assigned to.
+  3. Repeat for all functions.
+
+Done! The wheel is now fully set up.
+
+
+---------------------------------------------------------------------
+ GOOD TO KNOW AFTER SETUP
+---------------------------------------------------------------------
+
+  REMAPPING:
+  Click any button overlay on the wheel image in the main window to
+  assign a different Xbox function via dropdown - no wizard needed.
+
+  THE RED "WHEEL RESET" BUTTON:
+  The red button at the bottom centre of the wheel has a FIXED
+  function and cannot be remapped: pressing it re-centres the
+  steering (sets the current position as 0 degrees) and re-zeros
+  the pedal rest positions. It lights up red in the main window
+  while pressed. Use it after powering on with the wheel not
+  centred, or if pedals show input at rest.
+
+  FORCE FEEDBACK:
+  Main window > "Force Feedback Settings" - all effects (spring,
+  lateral-G, ABS/TC pulses, vibration) are adjustable live. See the
+  Manual tab "Force Feedback Settings" for what each slider does.
+
+  RESET ALL SETTINGS:
+  Main window > "Reset all Settings" clears button mapping, wiring,
+  hardware and FFB settings. Both wizards run again on next start.
+
+  GAMES:
+  Supported games are detected automatically. Some need a one-time
+  telemetry setting or plugin (Forza, DiRT, ETS2/ATS, BeamNG,
+  rF2/LMU, F1) - open the Manual in the software for exact
+  per-game instructions.
+
+
+---------------------------------------------------------------------
+ UPDATING FROM AN OLDER VERSION
+---------------------------------------------------------------------
+
+Your settings normally survive an update - button mapping, wiring,
+hardware and FFB settings are kept. Only when a release actually
+changes the configuration file format does the software reset them
+and run both wizards again; it tells you so with a notice on the
+first start after the update.
+
+After every update, re-flash BOTH Arduinos with the new firmware
+from the "Arduino files" folder (Step 3) - the software checks the
+firmware version on connect and will not operate with an outdated
+one.
+
+
+---------------------------------------------------------------------
+ TROUBLESHOOTING
+---------------------------------------------------------------------
+
+  "Searching for Wheel..." never connects:
+    - Is the Base connected via USB and powered?
+    - Does a COM port appear in Windows Device Manager? If not,
+      install the CH340 driver (Step 2).
+    - Close other programs that may occupy the COM port
+      (Arduino IDE Serial Monitor!).
+
+  "Firmware version mismatch" dialog:
+    - Flash the board(s) named in the dialog with the sketches from
+      this ZIP (Step 3), then let the software reconnect.
+
+  "No response from the Wheel" warning:
+    - Check the cable between wheel and Base and the wheel's power.
+    - Steering, pedals and FFB still work - only the wheel buttons
+      are affected.
+
+  Games do not react to the wheel:
+    - Is ViGEmBus installed (Step 1)?
+    - Windows Settings > Bluetooth & devices > Devices: an "Xbox 360
+      Controller" should appear while SimRacePro is connected.
+
+  Buttons mapped to the wrong positions:
+    - Click the button overlay in the main window to remap single
+      buttons, or use "Reset all Settings" + restart to redo the
+      full setup.
+
+
+=====================================================================
+  Have fun and see you on the track!
+=====================================================================

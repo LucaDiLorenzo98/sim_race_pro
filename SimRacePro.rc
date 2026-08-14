@@ -1,0 +1,6 @@
+// SimRacePro.rc
+#include "resource.h"
+#include "Version.rc"
+
+IDI_APP_ICON  ICON    "App.ico"
+IDR_WHEEL_BMP RCDATA  "wheel.bmp"

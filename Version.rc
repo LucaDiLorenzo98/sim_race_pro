@@ -1,0 +1,31 @@
+#include <windows.h>
+#include "resource.h"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     VER_MAJOR,VER_MINOR,VER_PATCH,VER_BUILD
+PRODUCTVERSION  VER_MAJOR,VER_MINOR,VER_PATCH,VER_BUILD
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0x0L
+FILEOS          VOS__WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "Scarala"
+            VALUE "FileDescription",  "SimRacePro Custom SimRacing Wheel Controller Software"
+            VALUE "FileVersion",      VER_STRING
+            VALUE "InternalName",     "SimRacePro Custom"
+            VALUE "LegalCopyright",   "Copyright 2026 GPL-3.0"
+            VALUE "OriginalFilename", "SimRacePro.exe"
+            VALUE "ProductName",      "SimRacePro Custom"
+            VALUE "ProductVersion",   VER_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
